@@ -6,7 +6,7 @@ Writes JSON to validation/bench_<mode>.json.
 import os, sys, json, time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(REPO, "tarfa", "engine")
-sys.path.insert(0, ENGINE)                       # repo engine FIRST — no /tmp, no runner
+sys.path.insert(0, ENGINE)                       # repo engine FIRST - no /tmp, no runner
 for p in list(sys.path):
     if p.startswith("/tmp") or "airllm-test/runner" in p:
         sys.path.remove(p)

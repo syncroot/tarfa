@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tarfa fast path — fused int4 kernel + PIPELINED expert prefetch.
+"""Tarfa fast path - fused int4 kernel + PIPELINED expert prefetch.
 While layer L's kernel/attention runs, a side CUDA stream prefetches layer L+1's PREDICTED
 experts (= what L+1 used last token). Hits are already on-GPU at L+1 (their H2D overlapped
 L's compute); misses stream in. Deterministic: the experts/values are identical, only the
@@ -160,7 +160,7 @@ class TarfaFused(ChannelModelQ4):
                 top_k_weights = tv / tv.sum(dim=-1, keepdim=True)
             out = torch.zeros_like(hidden_states)
 
-            if hidden_states.shape[0] == 1:                       # DECODE — pipelined
+            if hidden_states.shape[0] == 1:                       # DECODE - pipelined
                 _mt0 = time.perf_counter()
                 el = []; rwl = []; we = top_k_weights[0]
                 for j, e in enumerate(top_k_index[0].tolist()):
@@ -224,7 +224,7 @@ class TarfaFused(ChannelModelQ4):
                         eng._pf[layer_i + 1] = _load(q4f_next, nxt, eng.device, eng.dtype, 1, _pstream())
                 return out
 
-            # PREFILL — per-expert loop (one-time, no pipeline)
+            # PREFILL - per-expert loop (one-time, no pipeline)
             mask = F.one_hot(top_k_index, num_classes=n).permute(2, 1, 0)
             hit = [int(e) for e in torch.greater(mask.sum(dim=(-1, -2)), 0).nonzero().flatten().tolist() if int(e) != n]
             if not hit: return out

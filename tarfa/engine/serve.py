@@ -16,9 +16,9 @@ OUR_ID = "qwen3.5-122b-tarfa"                        # the fused-kernel 122B
 import quality                                  # decode-time quality strategies (N x compute -> better reasoning)
 import fused_int4, exact_bf16
 QMODES = {"tarfa-vote-5": ("vote", 5), "tarfa-judge-3": ("judge", 3), "tarfa-refine-2": ("refine", 2)}
-QLABEL = {"tarfa-vote-5": "Tarfa 122B — Self-consistency ×5 (vote)",
-          "tarfa-judge-3": "Tarfa 122B — Best-of-3 + judge",
-          "tarfa-refine-2": "Tarfa 122B — Self-refine ×2"}
+QLABEL = {"tarfa-vote-5": "Tarfa 122B - Self-consistency ×5 (vote)",
+          "tarfa-judge-3": "Tarfa 122B - Best-of-3 + judge",
+          "tarfa-refine-2": "Tarfa 122B - Self-refine ×2"}
 DRAFT_ID = "qwen3.5-0.8b"                           # the small model, talkable on its own
 LMS_CLI = os.path.expanduser("~/.lmstudio/bin/lms")
 BACKEND = {"cur": "122b", "model": None}

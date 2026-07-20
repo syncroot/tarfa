@@ -1,13 +1,13 @@
 # The Exactness Contract
 
 Tarfa's defining rule: **a performance change is accepted only if the output remains exactly the
-model's output.** Not "close", not "within quantization noise" — the same checkpoint weights, the
+model's output.** Not "close", not "within quantization noise": the same checkpoint weights, the
 same router semantics, the same greedy tokens. Anything else is a separate labeled mode.
 
 ## Invariants (exact mode)
 
 1. Expert weights are read from the original BF16 checkpoint (or its SHA-256-verified JNF
-   conversion) — bit-identical, never re-quantized.
+   conversion), bit-identical, never re-quantized.
 2. Router top-k is the model's native 8. No truncation (`JTOPK=8`).
 3. Final logits are computed in fp32 (bf16 over a 152k vocab flips argmax).
 4. Predictive prefetch / overlap tricks that can change numerics are off in exact mode.
@@ -35,7 +35,7 @@ is advertising; this table is the audit trail.
 
 Full narrative: [docs/PHASE_LOG.md](docs/PHASE_LOG.md).
 
-## The fast mode is not exact — and says so
+## The fast mode is not exact (and says so)
 
 `tarfa start-fast` runs the fused int4 Triton path (~2–3 tok/s vs ~0.34). Its output may differ
 from exact greedy decoding. It exists because sometimes you want speed; it is never the default,
@@ -45,7 +45,7 @@ until then the label stays.
 
 ## Why this matters
 
-Model auditing, interpretability, and safety evaluation all assume you are studying *the model* —
+Model auditing, interpretability, and safety evaluation all assume you are studying *the model*,
 not a quantized cousin with a truncated router. On consumer hardware that assumption is almost
 always false. Tarfa makes it true, and makes the cost of making it true visible: ~19 GB of verified
 NVMe reads per token. Exactness is expensive. Hiding that expense is how everyone else got fast.

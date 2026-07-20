@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tarfa cockpit — chat + memory-movement telemetry for the fused-kernel engine (port 8089)."""
+"""Tarfa cockpit - chat + memory-movement telemetry for the fused-kernel engine (port 8089)."""
 import json, time, subprocess, os
 import requests
 from textual.app import App, ComposeResult
@@ -60,12 +60,12 @@ class Tarfa(App):
             g = nvsmi(); s = get("/status"); io = get("/iostat")
             if g: TELEM.update(g)
             if s:
-                TELEM["big"] = s.get("big_model") or "—"
+                TELEM["big"] = s.get("big_model") or "-"
                 TELEM["hit"] = s.get("cache_hit_rate", 0.0); TELEM["resident"] = s.get("cached_experts", 0)
                 TELEM["state"] = "streaming" if s.get("serving") else ("idle" if not self.cur else TELEM["state"])
                 if not s.get("serving") and not self.cur: TELEM["toks"] = 0.0
             else:
-                TELEM["state"] = "asleep"; TELEM["big"] = "—"; TELEM["toks"] = 0.0
+                TELEM["state"] = "asleep"; TELEM["big"] = "-"; TELEM["toks"] = 0.0
             if io:
                 TELEM["gbps"] = io.get("read_GBps", 0.0); TELEM["mbs"] = io.get("read_b", 0) / 1e6; TELEM["eps"] = io.get("experts", 0)
             else:
@@ -117,11 +117,11 @@ class Tarfa(App):
         if get("/status"):
             self.call_from_thread(self.note, "→ stopping Tarfa…")
             subprocess.run([tarfa, "stop"], capture_output=True, timeout=30)
-            self.call_from_thread(self.note, "○ Tarfa stopped — GPU freed")
+            self.call_from_thread(self.note, "○ Tarfa stopped - GPU freed")
         else:
             self.call_from_thread(self.note, "→ starting Tarfa… (~90s, streaming residency)")
             subprocess.run([tarfa, "start"], capture_output=True, timeout=220)
-            self.call_from_thread(self.note, "● Tarfa up" if get("/status") else "✗ start failed — see `tarfa logs`")
+            self.call_from_thread(self.note, "● Tarfa up" if get("/status") else "✗ start failed - see `tarfa logs`")
 
     @on(Input.Submitted, "#inp")
     async def submit(self, e: Input.Submitted):
@@ -131,7 +131,7 @@ class Tarfa(App):
         h = self.query_one("#history")
         if msg in ("/toggle", "/sleep", "/wake"): self.do_toggle(); return
         if TELEM.get("state") == "asleep":
-            await h.mount(Static("[#c9a06f]Tarfa is down — type [b]/toggle[/] to start it (~90s).[/]")); h.scroll_end(); return
+            await h.mount(Static("[#c9a06f]Tarfa is down - type [b]/toggle[/] to start it (~90s).[/]")); h.scroll_end(); return
         await h.mount(Static(f"[b]you[/]  {msg}", classes="you"))
         self.cur = Static("[#2C8C7A]tarfa[/]  [dim]…[/]", classes="bot")
         await h.mount(self.cur); h.scroll_end(); self.stream(msg)
@@ -156,7 +156,7 @@ class Tarfa(App):
             self.call_from_thread(cur.update, f"[#2C8C7A]tarfa[/]  {acc}\n[#5f6b68]· {n} tok · {n/max(el,1e-9):.2f} tok/s · {el:.0f}s · fused MoE[/]")
         except Exception as ex:
             asleep = "Connection refused" in str(ex) or "Max retries" in str(ex)
-            txt = "Tarfa is down — type /toggle to start it" if asleep else f"error: {ex}"
+            txt = "Tarfa is down - type /toggle to start it" if asleep else f"error: {ex}"
             self.call_from_thread(cur.update, f"[#B5432B]{txt}[/]")
         self.cur = None; TELEM["toks"] = 0.0
         self.call_from_thread(lambda: self.query_one("#history").scroll_end())

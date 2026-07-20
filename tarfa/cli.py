@@ -1,4 +1,4 @@
-"""tarfa CLI — exact-first control layer.
+"""tarfa CLI - exact-first control layer.
 
   tarfa serve        exact BF16 serving (default; bit-identical weights)
   tarfa start-fast   labeled fast mode (fused int4; output may differ from exact greedy)
@@ -24,12 +24,12 @@ def main():
     ap.add_argument("rest", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     if a.cmd == "version":
-        print("tarfa 0.1.0 — exact BF16 by default; fast mode is labeled non-exact"); return 0
+        print("tarfa 0.1.0 - exact BF16 by default; fast mode is labeled non-exact"); return 0
     if a.cmd == "serve":
         print("[tarfa] EXACT mode: bit-identical BF16 weights, native top-8 routing.")
         return _run(os.path.join(ENGINE, "serve.py"), env={"BF16": "1", "JTOPK": "8"})
     if a.cmd == "start-fast":
-        print("[tarfa] FAST mode: fused int4 — output may differ from exact greedy decoding.")
+        print("[tarfa] FAST mode: fused int4 - output may differ from exact greedy decoding.")
         print("[tarfa] Never use fast mode for equivalence tests, reproducible research, or exact benchmarks.")
         return _run(os.path.join(ENGINE, "serve.py"), env={"BF16": "0", "JTOPK": "8"})
     if a.cmd == "chat":

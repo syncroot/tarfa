@@ -1,7 +1,7 @@
-# quality.py — decode-time QUALITY strategies for the 122B (spend N x compute for better reasoning).
-#   vote   : self-consistency  — N temp-samples, then synthesize the consensus answer
-#   judge  : best-of-N + judge  — N diverse drafts, then score & merge the best
-#   refine : self-refine loop   — draft, then K rounds of check-and-correct
+# quality.py - decode-time QUALITY strategies for the 122B (spend N x compute for better reasoning).
+#   vote   : self-consistency  - N temp-samples, then synthesize the consensus answer
+#   judge  : best-of-N + judge  - N diverse drafts, then score & merge the best
+#   refine : self-refine loop   - draft, then K rounds of check-and-correct
 # Each run() is a generator yielding ('status', msg) | ('token', text). The final answer streams as tokens.
 import torch
 from transformers.cache_utils import DynamicCache
@@ -42,13 +42,13 @@ def _vote_turn(drafts):
 def _judge_turn(drafts):
     return ("Below are candidate answers to my previous request:\n\n" + _drafts_block(drafts) +
             "\n\nEvaluate them for correctness and completeness, silently discard the flawed ones, then write the single "
-            "best final answer, merging the strongest and most correct parts. Output ONLY that final answer — no scores, "
+            "best final answer, merging the strongest and most correct parts. Output ONLY that final answer - no scores, "
             "no commentary about the candidates.")
 
 def _refine_turn(ans):
     return ("Here is a draft answer to my previous request:\n\n--- Draft ---\n" + ans.strip() +
             "\n\nCarefully check it for errors, omissions, and faulty reasoning. Re-derive anything uncertain. Then write a "
-            "corrected, improved FINAL answer. Output ONLY the final answer — do not show your critique.")
+            "corrected, improved FINAL answer. Output ONLY the final answer - do not show your critique.")
 
 def run(strategy, n, M, big_fwd, EOS, bp, msgs, mx, cancel, temp=0.7, top_p=0.95):
     draft_mx = min(mx, 1200)                                   # bound per-draft time; final gets full mx
@@ -75,7 +75,7 @@ def run(strategy, n, M, big_fwd, EOS, bp, msgs, mx, cancel, temp=0.7, top_p=0.95
         ans = _collect(M, big_fwd, EOS, bp, msgs, mx, 0.0, 1.0, cancel)
         for k in range(n):
             if cancel is not None and cancel.is_set(): break
-            yield ("status", f"check & correct — round {k+1}/{n}")
+            yield ("status", f"check & correct - round {k+1}/{n}")
             rm = msgs + [{"role": "user", "content": _refine_turn(ans)}]
             if k == n - 1:
                 buf = ""

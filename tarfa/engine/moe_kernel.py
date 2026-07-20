@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Fused int4-dequant + GEMV MoE decode kernel (Triton).  ISOLATED — self-contained, no external engine imports.
+Fused int4-dequant + GEMV MoE decode kernel (Triton).  ISOLATED - self-contained, no external engine imports.
 
 One kernel does: unpack int4 in registers/SRAM -> matrix-vector product -> per-row scale ->
 (optional) routing-weight scale -> (optional) accumulate into a shared output vector.
-The dequantized fp16 weights are NEVER materialized in VRAM — only (q-8) lives in registers,
+The dequantized fp16 weights are NEVER materialized in VRAM - only (q-8) lives in registers,
 and the per-row scale is folded onto the final partial sum.
 
 Format (int4 nibble-packed shards, symmetric int4):

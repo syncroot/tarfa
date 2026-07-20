@@ -1,6 +1,6 @@
 import os
 # -*- coding: utf-8 -*-
-"""Tarfa driver — build the fused-kernel engine, prefill, then a timed greedy decode loop.
+"""Tarfa driver - build the fused-kernel engine, prefill, then a timed greedy decode loop.
 Measures real streaming tok/s and prints the continuation to confirm correctness vs the exact path."""
 import sys, time, torch
 sys.path.insert(0, "/tmp"); sys.path.insert(0, os.path.expanduser("~/airllm-test/runner"))

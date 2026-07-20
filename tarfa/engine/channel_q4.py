@@ -49,7 +49,7 @@ def _read_experts(path, experts):             # parallel pread the missing exper
     _STAT["calls"] += 1; _STAT["experts"] += len(experts)
     return parts, meta
 
-# #2: static pinned L2 buffer — pread directly into page-locked host memory, one DMA per layer
+# #2: static pinned L2 buffer - pread directly into page-locked host memory, one DMA per layer
 _PIN = None; _PIN_NP = None; _PIN_MV = None
 def _pin(nbytes):
     global _PIN, _PIN_NP, _PIN_MV
@@ -109,7 +109,7 @@ class ChannelModelQ4(ChannelModel):
                         vt[name] = torch.frombuffer(p[name], dtype=dt).reshape(shp)
                     lru[e] = (vt["gate_up_q"].to(eng.device), vt["gate_up_s"].to(eng.device, eng.dtype),
                               vt["down_q"].to(eng.device), vt["down_s"].to(eng.device, eng.dtype))
-            for ei in hit:                                               # compute first — every hit is guaranteed in lru
+            for ei in hit:                                               # compute first - every hit is guaranteed in lru
                 pos, tok = torch.where(mask[ei])
                 cur = hidden_states[tok]
                 gqe, gse, dqe, dse = lru[ei]

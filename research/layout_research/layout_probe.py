@@ -3,7 +3,7 @@
 
 Measures, with page cache evicted per arm and identical byte volumes where
 possible, how throughput depends on request size, contiguity, and queue depth
-— the exact quantities RQ1 (interleaving), RQ2 (ordering) and RQ3 (bundles)
+- the exact quantities RQ1 (interleaving), RQ2 (ordering) and RQ3 (bundles)
 would change. Reads come from the real BF16 shards at authoritative offsets.
 """
 import concurrent.futures, json, os, pathlib, random, sys, time

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tarfa convert — build a verified JNF v1 tree from the HF BF16 checkpoint.
+"""tarfa convert - build a verified JNF v1 tree from the HF BF16 checkpoint.
 
 Per format/JNF_V1.md: per-layer gate_up.bf16 / down.bf16 with every expert projection
 4096-aligned and independently addressable; SHA-256 per expert projection and per file;

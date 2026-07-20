@@ -1,7 +1,7 @@
 # Phase 10: route-optimized physical BF16 layout
 
 Question: can exact BF16 inference be accelerated by reorganizing how expert
-weights sit on disk — interleaving, co-occurrence ordering, route bundles, or
+weights sit on disk, interleaving, co-occurrence ordering, route bundles, or
 model-specific lossless compression? Answer: **no, on this storage stack.**
 All four research questions were rejected at their first predeclared gates,
 each with a measured physical cause. No production code was touched.
@@ -46,10 +46,10 @@ which is per byte, not per seek). Contiguity and request count are worth ≈1–
   scattered reads into contiguous ranges; contiguity is worth ≤2% here, and
   gap reads add amplification on top.
 - **RQ3 route bundles: REJECTED.** A perfect bundle hit converts 8 scattered
-  reads into one 151 MB sequential read — measured *slower* (−2.3%); partial
+  reads into one 151 MB sequential read, measured *slower* (−2.3%); partial
   hits add read amplification and 1.25–2× storage cost buys nothing.
 - **RQ4 lossless compression: REJECTED at the replay gate (6.7% < 15%).**
-  Details below — this was the only lever that reduces bytes, and it earned a
+  Details below, this was the only lever that reduces bytes, and it earned a
   full physical test.
 
 ## RQ4 detail (`bf16_entropy_study.py`, `rq4_convert.py`, `rq4_replay*.py`)
@@ -57,7 +57,7 @@ which is per byte, not per seek). Contiguity and request count are worth ≈1–
 Entropy of 226 MB of real expert weight bytes: sign+exponent byte 2.65
 bits/byte (exponents concentrated in 114–121), mantissa byte 7.97 bits/byte
 (incompressible); order-0 ceiling ≈1.51×. XOR between experts: 6.46 bits/byte
-— worse than raw, killing base+residual and cross-expert dictionary schemes.
+worse than raw, killing base+residual and cross-expert dictionary schemes.
 
 Byte-plane split + zstd level 1 (level 1 beat levels 2–19 on ratio *and*
 speed): 1.451× file-level; 1.37–1.45× as independent per-expert frames
@@ -69,7 +69,7 @@ top-8; 14.5 GB plaintext, byte equality verified for all 396 distinct pairs):
 
 | pipeline | median | vs raw |
 |---|---|---|
-| raw shard reads (16 Python threads) | 3.04 s | — |
+| raw shard reads (16 Python threads) | 3.04 s |, |
 | v1: naive decode (alloc per call, CPU unplane) | 10.8 s | −217% |
 | v2: reused dctx, no unplane, GPU interleave 0.32 ms/expert | 3.26 s | −7% |
 | v3: 8 decode **processes** (GIL-free, C-path proxy) raw=2.15 s | 2.01 s | **+6.7%** |
@@ -77,7 +77,7 @@ top-8; 14.5 GB plaintext, byte equality verified for all 396 distinct pairs):
 Why 6.7% and not the naive 30%: consecutive tokens re-select ≈34% of experts,
 so the page cache serves a large share of re-reads at RAM speed. Compression
 saves bytes only on cache misses but pays decompression on every access.
-Charging everything honestly, the gain converges to ≈7% — under the 15% gate,
+Charging everything honestly, the gain converges to ≈7%, under the 15% gate,
 and it would shrink further after H2D and runtime integration. A dedicated C
 decode path cannot rescue it; v3 already models that.
 
@@ -101,7 +101,7 @@ levers are hardware/system-level:
 
 ## Files
 
-- `layout_probe.py`, `read_pattern_results.json` — read-pattern diagnosis
-- `bf16_entropy_study.py`, `rq4/entropy_report.json` — compressibility
-- `rq4_convert.py`, `rq4/zbf16/` (13.6 GB, gitignored) — validated converter
+- `layout_probe.py`, `read_pattern_results.json`, read-pattern diagnosis
+- `bf16_entropy_study.py`, `rq4/entropy_report.json`, compressibility
+- `rq4_convert.py`, `rq4/zbf16/` (13.6 GB, gitignored), validated converter
 - `rq4_replay.py`, `rq4_replay2.py`, `rq4_replay3.py`, `rq4/replay*_results.json`

@@ -117,22 +117,22 @@
   </div>
   <aside id="monitor"><div class="mpad">
     <div class="mtitle">Active</div>
-    <div class="mactive" id="curmodel">—</div>
-    <div class="msub" id="accel">—</div>
-    <div class="mrow" style="margin-top:9px"><span class="k">state</span><span class="v" id="state">—</span></div>
+    <div class="mactive" id="curmodel">-</div>
+    <div class="msub" id="accel">-</div>
+    <div class="mrow" style="margin-top:9px"><span class="k">state</span><span class="v" id="state">-</span></div>
     <div class="mrow"><span class="k">speed</span><span class="v"><span id="tps">0.00</span> <small>tok/s</small></span></div>
     <div class="mtitle">GPU</div>
-    <div class="mrow"><span class="k">utilization</span><span class="v" id="util">—<small>%</small></span></div>
+    <div class="mrow"><span class="k">utilization</span><span class="v" id="util">-<small>%</small></span></div>
     <div class="mbar"><i id="utilbar"></i></div>
-    <div class="mrow"><span class="k">VRAM</span><span class="v" id="vram">—</span></div>
+    <div class="mrow"><span class="k">VRAM</span><span class="v" id="vram">-</span></div>
     <div class="mbar"><i id="vrambar"></i></div>
-    <div class="mrow"><span class="k">power</span><span class="v" id="power">—<small> W</small></span></div>
-    <div class="mrow"><span class="k">temperature</span><span class="v" id="temp">—<small> °C</small></span></div>
+    <div class="mrow"><span class="k">power</span><span class="v" id="power">-<small> W</small></span></div>
+    <div class="mrow"><span class="k">temperature</span><span class="v" id="temp">-<small> °C</small></span></div>
     <div class="mtitle">Expert streaming</div>
-    <div class="mrow"><span class="k">bus</span><span class="v" id="bus">—<small> GB/s</small></span></div>
+    <div class="mrow"><span class="k">bus</span><span class="v" id="bus">-<small> GB/s</small></span></div>
     <div class="mbar"><i id="busbar"></i></div>
-    <div class="mrow"><span class="k">cache hit</span><span class="v" id="hit">—<small>%</small></span></div>
-    <div class="mrow"><span class="k">resident</span><span class="v" id="resident">—<small> exp</small></span></div>
+    <div class="mrow"><span class="k">cache hit</span><span class="v" id="hit">-<small>%</small></span></div>
+    <div class="mrow"><span class="k">resident</span><span class="v" id="resident">-<small> exp</small></span></div>
   </div></aside>
 </main>
 <script>
@@ -215,15 +215,15 @@ async function poll(){
     const [s, io] = await Promise.all([fetch("/status").then(r=>r.json()), fetch("/iostat").then(r=>r.json())]);
     const sp=$("#statpill").querySelector(".dot"); sp.className = "dot "+(s.serving?"busy":"up");
     $("#stxt").textContent = s.serving ? "generating" : "ready";
-    $("#curmodel").textContent = s.big_model || s.model || "—";
+    $("#curmodel").textContent = s.big_model || s.model || "-";
     $("#accel").textContent = s.accel || "";
     $("#state").textContent = s.serving ? "serving" : (s.idle_seconds!=null ? `idle ${Math.round(s.idle_seconds)}s` : "idle");
     const g = s.gpu || {};
-    $("#util").innerHTML = (g.util??"—")+"<small>%</small>"; $("#utilbar").style.width=(g.util||0)+"%";
+    $("#util").innerHTML = (g.util??"-")+"<small>%</small>"; $("#utilbar").style.width=(g.util||0)+"%";
     if(g.mem_total){ const f=g.mem_used/g.mem_total; $("#vram").innerHTML=(g.mem_used/1024).toFixed(1)+" / "+(g.mem_total/1024).toFixed(0)+" GB";
       $("#vrambar").style.width=(f*100)+"%"; $("#vrambar").style.background = f>0.92?"var(--danger)":"var(--accent)"; }
-    $("#power").innerHTML = (g.power??"—")+"<small> / "+(g.power_max||"")+" W</small>";
-    $("#temp").innerHTML = (g.temp??"—")+"<small> °C</small>";
+    $("#power").innerHTML = (g.power??"-")+"<small> / "+(g.power_max||"")+" W</small>";
+    $("#temp").innerHTML = (g.temp??"-")+"<small> °C</small>";
     const gb = io.read_GBps||0; $("#bus").innerHTML = (io.read_b>1e6 ? gb.toFixed(2) : "idle")+"<small> GB/s</small>";
     $("#busbar").style.width = Math.min(100, gb/15.7*100)+"%";
     $("#hit").innerHTML = Math.round((s.cache_hit_rate||0)*100)+"<small>%</small>";

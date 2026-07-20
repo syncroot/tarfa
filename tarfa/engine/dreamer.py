@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Dreamer — idle-time expert mapper. The 0.8B drafter invents probes, runs them
+"""Dreamer - idle-time expert mapper. The 0.8B drafter invents probes, runs them
 through the resident 122B, and accumulates a persistent atlas of which experts fire
 for which kind of input. Runs ONLY when the engine is idle; yields instantly to any
 real request by sharing the serving LOCK. Never raises into the serving path."""
@@ -72,7 +72,7 @@ def _ensure_wrapped():                       # re-wrap after any free/reload reb
         except Exception: pass
 
 def _next_probe():
-    cat = min(_names, key=lambda c: TOKS[c])  # keep coverage balanced — feed the least-sampled category
+    cat = min(_names, key=lambda c: TOKS[c])  # keep coverage balanced - feed the least-sampled category
     prompt, seeds = CATS[cat]
     M, DRAFT, EOS = _S["M"], _S["DRAFT"], _S["EOS"]
     probe = None
@@ -142,7 +142,7 @@ def _save():
         os.replace(ATLAS + ".tmp", ATLAS)
     except Exception: pass
 
-def snapshot():                              # compact view for /status (cheap — reads cached STATE)
+def snapshot():                              # compact view for /status (cheap - reads cached STATE)
     return {"state": STATE["state"], "probes": STATE["probes"], "cats": STATE["cats"],
             "experts": STATE["experts"], "selective": STATE["selective"], "last": STATE["last_cat"]}
 
