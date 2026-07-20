@@ -71,8 +71,8 @@ pinned buffers, and transport overlap rather than kernels.
 
 | mode | avg board power | GPU util | energy per token |
 |---|---|---|---|
-| exact BF16 | 31.8 W | 25.9% | **90.9 J** |
-| fast int4 | 38.7 W | 25.7% | **22.5 J** |
+| exact BF16 | 31.8 W | 25.9% | **91.0 J** |
+| fast int4 | 38.7 W | 25.7% | **21.3 J** |
 
 Exactness costs ~4× the energy per token, not because it draws more power (it draws *less*),
 but because each token takes longer. Receipts: `validation/power_metrics.json`.
