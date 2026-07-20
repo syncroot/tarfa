@@ -1,0 +1,18 @@
+[project]
+name = "tarfa"
+version = "0.1.0"
+description = "Exact-first MoE runtime: run a 122B Mixture-of-Experts with bit-identical BF16 weights on a 16 GB consumer GPU by streaming experts from NVMe."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = ["torch>=2.4", "transformers>=4.55", "safetensors>=0.4", "accelerate", "fastapi", "uvicorn", "numpy", "triton; platform_system=='Linux'"]
+
+[project.scripts]
+tarfa = "tarfa.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tarfa*"]

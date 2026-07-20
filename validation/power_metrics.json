@@ -1,0 +1,14 @@
+{
+  "fast": {
+    "watts": 38.7,
+    "util": 25.7,
+    "s_per_tok": 0.583,
+    "j_per_tok": 22.5
+  },
+  "exact": {
+    "watts": 31.8,
+    "util": 25.9,
+    "s_per_tok": 2.861,
+    "j_per_tok": 90.9
+  }
+}

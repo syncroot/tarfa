@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tarfa</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<style>
+  :root{
+    --bg:#F7F4EE; --surface:#FFFFFF; --raised:#FDFCF9; --line:#E8E3D8; --line2:#DAD3C4;
+    --ink:#2C2B28; --ink2:#535049; --muted:#8A8478; --faint:#A9A293;
+    --accent:#CC7A57; --accent-ink:#fff; --userbubble:#EFEBE1; --code:#F2EEE4;
+    --good:#5C9A6F; --warn:#C98A3C; --danger:#C2603F;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--ink);
+    font:16px/1.65 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+  /* header */
+  header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--bg);z-index:5}
+  .word{font-weight:600;letter-spacing:.02em;font-size:16px;color:var(--ink)}
+  .word b{color:var(--accent)}
+  .modelwrap{position:relative}
+  select{appearance:none;background:var(--surface);color:var(--ink);border:1px solid var(--line2);
+    border-radius:9px;padding:7px 30px 7px 12px;font:inherit;font-size:14px;cursor:pointer;max-width:340px;outline:none}
+  select:hover{border-color:#C9C0AE}
+  .modelwrap::after{content:"⌄";position:absolute;right:11px;top:5px;color:var(--faint);pointer-events:none}
+  .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .iconbtn{background:none;border:1px solid transparent;border-radius:9px;padding:7px 11px;font:inherit;font-size:13.5px;color:var(--ink2);cursor:pointer}
+  .iconbtn:hover{background:var(--surface);border-color:var(--line)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--faint);margin-right:5px;vertical-align:1px}
+  .dot.up{background:var(--good)} .dot.busy{background:var(--warn)} .dot.off{background:var(--danger)}
+  main{flex:1;display:flex;min-height:0}
+  /* chat */
+  #chatcol{flex:1;display:flex;flex-direction:column;min-width:0}
+  #scroll{flex:1;overflow-y:auto}
+  #thread{max-width:720px;margin:0 auto;padding:28px 24px 40px}
+  .turn{margin-bottom:26px}
+  .turn .role{font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--faint);margin-bottom:7px;text-transform:uppercase}
+  .turn.user .bubble{background:var(--userbubble);border-radius:14px;padding:11px 16px;white-space:pre-wrap;word-break:break-word;color:var(--ink)}
+  .turn.tarfa .md{color:var(--ink)}
+  .meta{color:var(--faint);font-size:12.5px;margin-top:9px;font-family:ui-monospace,Menlo,monospace}
+  .welcome{max-width:560px;margin:16vh auto;text-align:center;color:var(--ink2)}
+  .welcome h1{font-weight:500;font-size:26px;color:var(--ink);margin:0 0 8px;letter-spacing:-.01em}
+  .welcome p{color:var(--faint);margin:0}
+  .cursor{display:inline-block;width:8px;height:17px;background:var(--accent);vertical-align:-3px;border-radius:1px;animation:blink 1s steps(2) infinite;margin-left:1px}
+  @keyframes blink{50%{opacity:0}}
+  /* markdown */
+  .md p{margin:0 0 14px} .md>:last-child{margin-bottom:0}
+  .md h1,.md h2,.md h3{font-weight:600;line-height:1.3;margin:20px 0 10px}
+  .md h1{font-size:1.4em} .md h2{font-size:1.22em} .md h3{font-size:1.08em}
+  .md ul,.md ol{margin:0 0 14px;padding-left:24px} .md li{margin:3px 0}
+  .md code{background:var(--code);border-radius:5px;padding:.12em .4em;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.88em}
+  .md pre{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto;margin:0 0 14px}
+  .md pre code{background:none;padding:0;font-size:13.5px;line-height:1.6}
+  .md table{border-collapse:collapse;margin:0 0 14px;font-size:14.5px;display:block;overflow-x:auto;max-width:100%}
+  .md th,.md td{border:1px solid var(--line2);padding:7px 13px;text-align:left}
+  .md th{background:var(--raised);font-weight:600}
+  .md tr:nth-child(even) td{background:#FCFBF7}
+  .md blockquote{border-left:3px solid var(--line2);margin:0 0 14px;padding:2px 0 2px 16px;color:var(--ink2)}
+  .md a{color:var(--accent)}
+  .md p,.md li,.md td,.md th,.md h1,.md h2,.md h3{unicode-bidi:plaintext}  /* auto LTR/RTL per block (Arabic [E]) */
+  /* composer */
+  #composer{padding:10px 24px 18px;background:linear-gradient(180deg,transparent,var(--bg) 26%)}
+  #cbox{max-width:720px;margin:0 auto;background:var(--surface);border:1px solid var(--line2);border-radius:20px;
+    padding:10px 10px 10px 18px;display:flex;align-items:flex-end;gap:10px;box-shadow:0 2px 10px rgba(60,50,30,.04)}
+  #cbox:focus-within{border-color:#C9BCA2}
+  #prompt{flex:1;background:none;border:none;outline:none;resize:none;font:inherit;color:var(--ink);max-height:220px;padding:6px 0;line-height:1.55}
+  #send{flex:0 0 auto;width:38px;height:38px;border:none;border-radius:50%;background:var(--accent);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  #send:disabled{background:#E2D8C8;color:#fff;cursor:default}
+  .undertools{max-width:720px;margin:8px auto 0;display:flex;align-items:center;gap:14px;color:var(--faint);font-size:12.5px}
+  .undertools input[type=range]{accent-color:var(--accent);vertical-align:middle}
+  #stop{margin-left:auto;color:var(--danger);background:none;border:1px solid #E3CCC0;border-radius:8px;padding:3px 10px;cursor:pointer;display:none}
+  /* monitor */
+  aside{flex:0 0 256px;border-left:1px solid var(--line);background:var(--raised);overflow-y:auto;transition:margin-right .2s}
+  aside.hidden{margin-right:-256px}
+  .mpad{padding:16px 16px}
+  .mtitle{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:16px 0 8px;font-weight:600}
+  .mtitle:first-child{margin-top:0}
+  .mrow{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px;font-size:13.5px}
+  .mrow .k{color:var(--ink2)} .mrow .v{font-family:ui-monospace,Menlo,monospace;font-weight:600;color:var(--ink)}
+  .mrow .v small{color:var(--faint);font-weight:400;font-size:11px}
+  .mbar{height:6px;border-radius:3px;background:#EBE6DA;overflow:hidden;margin:1px 0 10px}
+  .mbar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s,background .3s}
+  .mactive{font-size:13.5px;color:var(--ink);font-weight:500;line-height:1.35}
+  .msub{font-size:12px;color:var(--faint);margin-top:1px}
+  @media(max-width:860px){aside{position:fixed;right:0;top:0;bottom:0;z-index:9;box-shadow:-8px 0 24px rgba(0,0,0,.08)}}
+</style>
+</head>
+<body>
+<header>
+  <span class="word">Jo<b>r</b>i</span>
+  <span class="modelwrap"><select id="model" title="Switch model"></select></span>
+  <div class="right">
+    <span class="iconbtn" id="statpill"><span class="dot"></span><span id="stxt">…</span></span>
+    <button class="iconbtn" id="newchat">New chat</button>
+    <button class="iconbtn" id="montoggle" title="Toggle monitor">Monitor</button>
+  </div>
+</header>
+<main>
+  <div id="chatcol">
+    <div id="scroll"><div id="thread"><div class="welcome" id="welcome">
+      <h1>How can Tarfa help?</h1><p>A 122B model running locally. Pick a model above and ask anything.</p>
+    </div></div></div>
+    <div id="composer">
+      <div id="cbox">
+        <textarea id="prompt" rows="1" placeholder="Message Tarfa…"></textarea>
+        <button id="send" title="Send">↑</button>
+      </div>
+      <div class="undertools">
+        <label>max tokens <b id="mtval">2048</b>
+          <input type="range" id="mt" min="256" max="32768" step="256" value="2048" style="width:150px"></label>
+        <button id="stop">stop</button>
+      </div>
+    </div>
+  </div>
+  <aside id="monitor"><div class="mpad">
+    <div class="mtitle">Active</div>
+    <div class="mactive" id="curmodel">—</div>
+    <div class="msub" id="accel">—</div>
+    <div class="mrow" style="margin-top:9px"><span class="k">state</span><span class="v" id="state">—</span></div>
+    <div class="mrow"><span class="k">speed</span><span class="v"><span id="tps">0.00</span> <small>tok/s</small></span></div>
+    <div class="mtitle">GPU</div>
+    <div class="mrow"><span class="k">utilization</span><span class="v" id="util">—<small>%</small></span></div>
+    <div class="mbar"><i id="utilbar"></i></div>
+    <div class="mrow"><span class="k">VRAM</span><span class="v" id="vram">—</span></div>
+    <div class="mbar"><i id="vrambar"></i></div>
+    <div class="mrow"><span class="k">power</span><span class="v" id="power">—<small> W</small></span></div>
+    <div class="mrow"><span class="k">temperature</span><span class="v" id="temp">—<small> °C</small></span></div>
+    <div class="mtitle">Expert streaming</div>
+    <div class="mrow"><span class="k">bus</span><span class="v" id="bus">—<small> GB/s</small></span></div>
+    <div class="mbar"><i id="busbar"></i></div>
+    <div class="mrow"><span class="k">cache hit</span><span class="v" id="hit">—<small>%</small></span></div>
+    <div class="mrow"><span class="k">resident</span><span class="v" id="resident">—<small> exp</small></span></div>
+  </div></aside>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const thread = $("#thread"), scroll = $("#scroll"), promptEl = $("#prompt"), sendBtn = $("#send"),
+      stopBtn = $("#stop"), modelSel = $("#model"), monitor = $("#monitor");
+let busy = false, controller = null, history = [], curModel = "qwen3.5-122b-tarfa";
+const md = (t) => { try { return window.marked ? marked.parse(t, {breaks:true, gfm:true}) : esc(t); } catch(e){ return esc(t); } };
+function esc(t){ return t.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+promptEl.addEventListener("input", () => { promptEl.style.height="auto"; promptEl.style.height=Math.min(promptEl.scrollHeight,220)+"px"; });
+promptEl.addEventListener("keydown", e => { if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); send(); } });
+sendBtn.onclick = send;
+stopBtn.onclick = () => { if(controller) controller.abort(); fetch("/stop",{method:"POST"}).catch(()=>{}); };
+$("#mt").oninput = e => $("#mtval").textContent = e.target.value;
+$("#newchat").onclick = () => { history=[]; thread.innerHTML='<div class="welcome"><h1>New chat</h1><p>Ask away.</p></div>'; };
+$("#montoggle").onclick = () => monitor.classList.toggle("hidden");
+modelSel.onchange = () => { curModel = modelSel.value; };
+
+async function loadModels(){
+  try{
+    const d = await fetch("/v1/models").then(r=>r.json());
+    const cur = modelSel.value || curModel;
+    modelSel.innerHTML = "";
+    d.data.forEach(m => { const o=document.createElement("option"); o.value=m.id; o.textContent=m.label||m.id; modelSel.appendChild(o); });
+    if([...modelSel.options].some(o=>o.value===cur)) modelSel.value=cur; else curModel=modelSel.value;
+  }catch(e){}
+}
+
+function addTurn(role, html){
+  $("#welcome")?.remove();
+  const t = document.createElement("div"); t.className = "turn "+role;
+  t.innerHTML = role==="user"
+    ? `<div class="role">You</div><div class="bubble"></div>`
+    : `<div class="role">Tarfa</div><div class="md"></div>`;
+  (role==="user" ? t.querySelector(".bubble") : t.querySelector(".md")).innerHTML = html;
+  thread.appendChild(t); scroll.scrollTop = scroll.scrollHeight;
+  return t;
+}
+
+async function send(){
+  const text = promptEl.value.trim(); if(!text || busy) return;
+  promptEl.value=""; promptEl.style.height="auto";
+  addTurn("user", esc(text)); history.push({role:"user", content:text});
+  busy=true; sendBtn.disabled=true; stopBtn.style.display="inline-block";
+  const turn = addTurn("tarfa", '<span class="cursor"></span>');
+  const body = turn.querySelector(".md");
+  let acc="", n=0, dirty=false; const t0=performance.now();
+  const tick = setInterval(() => { if(dirty){ body.innerHTML = md(acc)+'<span class="cursor"></span>'; dirty=false;
+    if(scroll.scrollTop+scroll.clientHeight > scroll.scrollHeight-120) scroll.scrollTop=scroll.scrollHeight; } }, 110);
+  controller = new AbortController();
+  try{
+    const resp = await fetch("/v1/chat/completions", {method:"POST", headers:{"Content-Type":"application/json"}, signal:controller.signal,
+      body: JSON.stringify({model:curModel, messages:history, max_tokens:parseInt($("#mt").value), stream:true})});
+    const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf="";
+    while(true){
+      const {done, value} = await reader.read(); if(done) break;
+      buf += dec.decode(value, {stream:true}); let i;
+      while((i = buf.indexOf("\n")) >= 0){
+        const line = buf.slice(0,i).trim(); buf = buf.slice(i+1);
+        if(!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim(); if(data === "[DONE]") continue;
+        try{ const c = JSON.parse(data).choices[0].delta.content;
+          if(c){ acc += c; n++; dirty=true; const el=(performance.now()-t0)/1000; $("#tps").textContent=(n/el).toFixed(2); } }catch(e){}
+      }
+    }
+  }catch(e){ if(e.name!=="AbortError") acc += `\n\n*[error: ${e.message}]*`; }
+  clearInterval(tick);
+  const el=(performance.now()-t0)/1000;
+  body.innerHTML = md(acc);
+  const meta=document.createElement("div"); meta.className="meta";
+  meta.textContent = `${n} tokens · ${(n/Math.max(el,.001)).toFixed(2)} tok/s · ${el.toFixed(0)}s`;
+  turn.appendChild(meta); history.push({role:"assistant", content:acc});
+  busy=false; sendBtn.disabled=false; stopBtn.style.display="none"; controller=null; promptEl.focus();
+  scroll.scrollTop = scroll.scrollHeight;
+}
+
+async function poll(){
+  try{
+    const [s, io] = await Promise.all([fetch("/status").then(r=>r.json()), fetch("/iostat").then(r=>r.json())]);
+    const sp=$("#statpill").querySelector(".dot"); sp.className = "dot "+(s.serving?"busy":"up");
+    $("#stxt").textContent = s.serving ? "generating" : "ready";
+    $("#curmodel").textContent = s.big_model || s.model || "—";
+    $("#accel").textContent = s.accel || "";
+    $("#state").textContent = s.serving ? "serving" : (s.idle_seconds!=null ? `idle ${Math.round(s.idle_seconds)}s` : "idle");
+    const g = s.gpu || {};
+    $("#util").innerHTML = (g.util??"—")+"<small>%</small>"; $("#utilbar").style.width=(g.util||0)+"%";
+    if(g.mem_total){ const f=g.mem_used/g.mem_total; $("#vram").innerHTML=(g.mem_used/1024).toFixed(1)+" / "+(g.mem_total/1024).toFixed(0)+" GB";
+      $("#vrambar").style.width=(f*100)+"%"; $("#vrambar").style.background = f>0.92?"var(--danger)":"var(--accent)"; }
+    $("#power").innerHTML = (g.power??"—")+"<small> / "+(g.power_max||"")+" W</small>";
+    $("#temp").innerHTML = (g.temp??"—")+"<small> °C</small>";
+    const gb = io.read_GBps||0; $("#bus").innerHTML = (io.read_b>1e6 ? gb.toFixed(2) : "idle")+"<small> GB/s</small>";
+    $("#busbar").style.width = Math.min(100, gb/15.7*100)+"%";
+    $("#hit").innerHTML = Math.round((s.cache_hit_rate||0)*100)+"<small>%</small>";
+    $("#resident").innerHTML = (s.cached_experts||0)+"<small> exp</small>";
+  }catch(e){ $("#statpill").querySelector(".dot").className="dot off"; $("#stxt").textContent="offline"; }
+}
+loadModels(); setInterval(loadModels, 15000);
+poll(); setInterval(poll, 1500);
+promptEl.focus();
+</script>
+</body>
+</html>

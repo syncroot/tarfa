@@ -1,0 +1,12 @@
+{
+  "mode": "exact_bf16",
+  "load_s": 25.1,
+  "prefill_s": 16.2,
+  "prefill_tokens": 10,
+  "decode_tokens": 8,
+  "s_per_tok_mean": 2.869,
+  "s_per_tok_median": 2.856,
+  "tok_per_s": 0.349,
+  "continuation": ":\n\n1. **Selectivity**",
+  "vram_gb": 12.38
+}

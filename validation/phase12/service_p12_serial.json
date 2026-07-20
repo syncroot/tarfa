@@ -1,0 +1,32 @@
+{
+  "label": "p12_serial",
+  "requests": {
+    "arithmetic": {
+      "prompt": "What is 17 * 23? Answer with only the number.",
+      "max_tokens": 4,
+      "output": "391",
+      "wall_seconds": 29.660212869057432,
+      "bytes": 78246786174,
+      "read_seconds": 17.50517410854809,
+      "h2d_seconds": 9.210538151673973
+    },
+    "code": {
+      "prompt": "Write a Python function add(a, b).",
+      "max_tokens": 12,
+      "output": "```python\ndef add(a, b):\n    \"\"\"",
+      "wall_seconds": 35.469531995011494,
+      "bytes": 112803483475,
+      "read_seconds": 17.78106249216944,
+      "h2d_seconds": 14.459272764390334
+    },
+    "arabic": {
+      "prompt": "\u0627\u0634\u0631\u062d \u0627\u0644\u0637\u0627\u0642\u0629 \u0627\u0644\u0634\u0645\u0633\u064a\u0629 \u0641\u064a \u062c\u0645\u0644\u0629 \u0648\u0627\u062d\u062f\u0629.",
+      "max_tokens": 12,
+      "output": "\u0627\u0644\u0637\u0627\u0642\u0629 \u0627\u0644\u0634\u0645\u0633\u064a\u0629 \u0647\u064a \u0627\u0644\u0637\u0627\u0642\u0629 \u0627\u0644\u0645\u062a\u062c\u062f\u062f\u0629 \u0627\u0644\u0646\u0627\u062a\u062c\u0629",
+      "wall_seconds": 36.70910293003544,
+      "bytes": 116232702009,
+      "read_seconds": 18.711708559654653,
+      "h2d_seconds": 14.676782715367153
+    }
+  }
+}

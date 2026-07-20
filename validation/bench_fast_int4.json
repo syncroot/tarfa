@@ -1,0 +1,12 @@
+{
+  "mode": "fast_int4",
+  "load_s": 22.0,
+  "prefill_s": 5.8,
+  "prefill_tokens": 10,
+  "decode_tokens": 16,
+  "s_per_tok_mean": 0.552,
+  "s_per_tok_median": 0.498,
+  "tok_per_s": 1.811,
+  "continuation": ":\n\n1. **Selectivity** \u2013 the proportion of distinct values in the",
+  "vram_gb": 12.38
+}

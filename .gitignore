@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+logs/
+*.log
+.tarfa_usage.json
+jnf-v1/
+jnf-v1-sample/
+transport_data/
+*.deb
+*.safetensors
+*.bf16
+venv/
+*.egg-info/
+build/
+dist/

@@ -1,0 +1,99 @@
+{
+  "config": {
+    "layers": 12,
+    "experts_per_layer": 8,
+    "record_bytes": 18874368,
+    "gate_bytes": 12582912,
+    "down_bytes": 6291456
+  },
+  "A_production_split16": {
+    "bytes": 1811939328,
+    "seconds": 0.5115,
+    "GBps": 3.543,
+    "cpu_busy": 0.274
+  },
+  "B_interleaved_1x18MB": {
+    "bytes": 1811939328,
+    "seconds": 0.4993,
+    "GBps": 3.629,
+    "cpu_busy": 0.219
+  },
+  "C_bundle_1x151MB": {
+    "bytes": 1811939328,
+    "seconds": 0.526,
+    "GBps": 3.445,
+    "cpu_busy": 0.191
+  },
+  "D_sequential_1thread": {
+    "bytes": 1811939328,
+    "seconds": 0.794,
+    "GBps": 2.282,
+    "cpu_busy": 0.101
+  },
+  "D_sequential_8threads": {
+    "bytes": 1811939328,
+    "seconds": 0.5347,
+    "GBps": 3.388,
+    "cpu_busy": 0.221
+  },
+  "E_depth_01": {
+    "bytes": 1811939328,
+    "seconds": 0.9383,
+    "GBps": 1.931,
+    "cpu_busy": 0.085
+  },
+  "E_depth_02": {
+    "bytes": 1811939328,
+    "seconds": 0.948,
+    "GBps": 1.911,
+    "cpu_busy": 0.098
+  },
+  "E_depth_04": {
+    "bytes": 1811939328,
+    "seconds": 0.687,
+    "GBps": 2.637,
+    "cpu_busy": 0.138
+  },
+  "E_depth_08": {
+    "bytes": 1811939328,
+    "seconds": 0.5353,
+    "GBps": 3.385,
+    "cpu_busy": 0.244
+  },
+  "E_depth_16": {
+    "bytes": 1811939328,
+    "seconds": 0.5045,
+    "GBps": 3.592,
+    "cpu_busy": 0.216
+  },
+  "E_depth_32": {
+    "bytes": 1811939328,
+    "seconds": 0.5121,
+    "GBps": 3.538,
+    "cpu_busy": 0.213
+  },
+  "E_depth_48": {
+    "bytes": 1811939328,
+    "seconds": 0.5026,
+    "GBps": 3.605,
+    "cpu_busy": 0.223
+  },
+  "F_split_depth_08": {
+    "bytes": 1811939328,
+    "seconds": 0.5258,
+    "GBps": 3.446,
+    "cpu_busy": 0.172
+  },
+  "F_split_depth_16": {
+    "bytes": 1811939328,
+    "seconds": 0.5122,
+    "GBps": 3.538,
+    "cpu_busy": 0.194
+  },
+  "F_split_depth_48": {
+    "bytes": 1811939328,
+    "seconds": 0.5103,
+    "GBps": 3.551,
+    "cpu_busy": 0.173
+  }
+}
