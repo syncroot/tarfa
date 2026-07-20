@@ -7,9 +7,9 @@
 **Run a 122-billion-parameter MoE with bit-identical BF16 weights on a 16 GB consumer GPU.**
 
 Tarfa is an exact-first Mixture-of-Experts runtime. It streams experts from NVMe through
-pinned RAM into VRAM as one managed memory hierarchy — and it makes a promise most engines don't:
+pinned RAM into VRAM as one managed memory hierarchy  and it makes a promise most engines don't:
 **the model you run is the checkpoint, provably.** No quantization, no router truncation, no silent
-precision changes. A clearly-labeled fast mode exists for when you want speed over exactness — but
+precision changes. A clearly-labeled fast mode exists for when you want speed over exactness  but
 exact is the default, and every performance change in Tarfa's history had to prove exactness or be
 rejected (the rejections are documented, with numbers, in [EXACTNESS.md](EXACTNESS.md)).
 
@@ -26,33 +26,33 @@ $ tarfa serve
 </p>
 
 Same GPU, same 122B model, same prompt: exact BF16 costs ~5× the speed of the labeled int4 fast
-mode — because each exact token moves **~19 GB of verified expert weights from NVMe**.
+mode  because each exact token moves **~19 GB of verified expert weights from NVMe**.
 
 <p align="center">
   <img src="docs/media/power_utilization.svg" width="90%" alt="power and utilization traces">
 </p>
 
 The measured surprise: while running a 122B model, the GPU averages **26% utilization at ~32 W of
-its 160 W budget** — the workload is storage-bound, not compute-bound. The ceiling on consumer
+its 160 W budget**  the workload is storage-bound, not compute-bound. The ceiling on consumer
 hardware is engineering, not silicon. Full receipts and methodology: [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Why Tarfa exists
 
 Every practical way to run a 100B+ model on consumer hardware quietly changes the model:
 int4/int8 quantization, truncated router top-k, speculative decoding whose greedy output diverges.
-Fine for chat — fatal for reproducible research, model auditing, interpretability, and any
+Fine for chat  fatal for reproducible research, model auditing, interpretability, and any
 correctness-sensitive work. Tarfa's contract:
 
 - expert weights are read **bit-identical** from the original BF16 checkpoint;
 - native router semantics (top-8) are never reduced;
-- anything that trades exactness for speed is a **separate, explicitly-labeled mode** — never a default.
+- anything that trades exactness for speed is a **separate, explicitly-labeled mode**  never a default.
 
 ## Measured (RTX 4060 Ti 16 GB, PCIe4 NVMe, Qwen3.5-122B-A10B)
 
 | mode | decode speed | weights | greedy output |
 |---|---|---|---|
 | **exact BF16** (default) | ~0.34 tok/s (2.9–3.1 s/tok; ~2.6 with completion overlap) | bit-identical | reference |
-| **fast** (fused int4 Triton) | ~2–3 tok/s | int4 symmetric | may differ — labeled |
+| **fast** (fused int4 Triton) | ~2–3 tok/s | int4 symmetric | may differ  labeled |
 
 Exact mode moves ~19 GB of expert weights from NVMe per decoded token, verified against the
 checkpoint. That it works at all on a $400 GPU is the point; that it's *provably exact* is the
