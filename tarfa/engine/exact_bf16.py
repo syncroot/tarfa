@@ -13,10 +13,22 @@ RAM_CACHE_GB = float(os.environ.get("BF16_RAM_CACHE_GB", "0"))
 _RAM = None
 
 class ExpertArena:
-    """Fixed-slot raw-BF16 arena with independent segmented queues per layer."""
-    def __init__(self, budget_bytes, slot_bytes, layers=48):
+    """Fixed-slot raw-BF16 arena with independent segmented queues per layer.
+
+    `layers` was hardcoded to 48 (the 122B's depth). On any model with a different depth
+    the budget was divided by the wrong count, so the arena could not hold a full layer's
+    expert set no matter how large the budget: a 40-layer model at a 65 GB budget got
+    per_layer=215 against 256 experts. It is now derived from the checkpoint. Caching only
+    -- no weight, router or arithmetic change."""
+    def __init__(self, budget_bytes, slot_bytes, layers=None, experts_per_layer=None):
+        if layers is None:
+            try: layers = len(meta())
+            except Exception: layers = 48
         total = int(budget_bytes // slot_bytes)
         self.per_layer = max(1, total // layers); self.slots = self.per_layer * layers
+        # Full residency is only possible when a layer's whole expert set has slots.
+        self.full_resident = (experts_per_layer is not None
+                              and self.per_layer >= experts_per_layer)
         self.slot_bytes = slot_bytes; self.mem = mmap.mmap(-1, self.slots * slot_bytes)
         self.free = list(range(self.slots - 1, -1, -1)); self.where = {}
         self.probation = [OrderedDict() for _ in range(layers)]
@@ -55,6 +67,7 @@ class ExpertArena:
 
     def snapshot(self):
         return {"enabled": True, "budget_gb": RAM_CACHE_GB, "slots": self.slots,
+                "per_layer": self.per_layer, "full_resident": self.full_resident,
                 "per_layer": self.per_layer, "resident": len(self.where), "hits": self.hits,
                 "misses": self.misses, "evictions": self.evictions,
                 "hit_rate": round(self.hits / max(self.hits + self.misses, 1), 4),
@@ -130,7 +143,8 @@ def read_bf16(layer, experts, device, dtype, use_ram_cache=False):
     eg = shpg[1] * shpg[2] * 2; ed = shpd[1] * shpd[2] * 2          # bytes/expert (bf16=2B)
     global _RAM
     if use_ram_cache and RAM_CACHE_GB > 0 and _RAM is None:
-        _RAM = ExpertArena(RAM_CACHE_GB * 1e9, eg + ed)
+        _RAM = ExpertArena(RAM_CACHE_GB * 1e9, eg + ed,
+                           layers=len(meta()), experts_per_layer=shpg[0])
     if not experts: return {}
     if PINNED:
         with _PIN_LOCK:
