@@ -127,12 +127,40 @@ def big_fwd(token_list, cache):
     pe = M.lm.rotary_emb(h, rope_pos)
     causal = create_causal_mask(config=M.cfg, inputs_embeds=h, attention_mask=None, past_key_values=cache, position_ids=text_pos)
     _l0 = time.perf_counter()
+    _MP = os.environ.get("TARFA_MEMPROF") == "1" and S > 1
+    if _MP:
+        torch.cuda.synchronize(); torch.cuda.reset_peak_memory_stats()
+        _mp_rows = []; _mp_base = torch.cuda.memory_allocated()
+        print("[memprof] S=%d  baseline allocated=%.0f MiB  mask=%s"
+              % (S, _mp_base/2**20, "None" if causal is None else tuple(causal.shape)), flush=True)
     for i in range(M.nL):
         lt = M.layer_types[i] if M.layer_types else "full_attention"
         mask = None if lt == "linear_attention" else causal
+        if _MP:
+            torch.cuda.synchronize(); _a0 = torch.cuda.memory_allocated(); torch.cuda.reset_peak_memory_stats()
         o = M._make_layer(i)(h, position_embeddings=pe, attention_mask=mask, position_ids=text_pos, past_key_values=cache, use_cache=True)
         h = o[0] if isinstance(o, tuple) else o
+        if _MP:
+            torch.cuda.synchronize()
+            _mp_rows.append((i, lt, (torch.cuda.memory_allocated()-_a0)/2**20,
+                             (torch.cuda.max_memory_allocated()-_a0)/2**20))
     if torch.cuda.is_available(): torch.cuda.synchronize()
+    if _MP:
+        from collections import defaultdict
+        agg = defaultdict(lambda: [0, 0.0, 0.0])
+        for i, lt, keep, peak in _mp_rows:
+            agg[lt][0] += 1; agg[lt][1] += keep; agg[lt][2] = max(agg[lt][2], peak)
+        print("[memprof] per layer-type over %d layers:" % len(_mp_rows), flush=True)
+        for lt, (n, keep, peak) in agg.items():
+            print("[memprof]   %-18s n=%-3d retained=%8.1f MiB  worst transient peak=%8.1f MiB"
+                  % (lt, n, keep, peak), flush=True)
+        print("[memprof] total retained after loop=%.0f MiB   process peak=%.0f MiB"
+              % ((torch.cuda.memory_allocated()-_mp_base)/2**20,
+                 torch.cuda.max_memory_allocated()/2**20), flush=True)
+        worst = sorted(_mp_rows, key=lambda r: -r[3])[:3]
+        for i, lt, keep, peak in worst:
+            print("[memprof]   worst layer %2d (%s): retained %.1f MiB, transient peak %.1f MiB"
+                  % (i, lt, keep, peak), flush=True)
     _layer_s = time.perf_counter() - _l0
     M._mat(M.lm.norm, M.prefix + "norm"); h = M.lm.norm(h); M._free(M.lm.norm)
     h = h[:, -1:, :]                                            # only the last position's logits are ever used (decode S=1;
