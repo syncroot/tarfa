@@ -136,6 +136,55 @@ def _pinned(tag, needed):
         _PIN[mv_key] = memoryview(buf.numpy()).cast("B")
     return _PIN[tag], _PIN[mv_key]
 
+def prewarm_tree(root=None, block=8<<20):
+    """Make the JNF tree page-cache resident by reading it once, sequentially.
+
+    Rationale, measured: the ExpertArena reaches an 84.67% hit rate and avoids 133.3 GiB
+    of reads, yet loses 36% end-to-end warm (0.857 vs 1.333 tok/s) because it inserts a
+    copy: file -> page cache -> arena -> pinned buffer. Once the pages are cached the
+    extra memcpy costs more than the disk read it saves. Page-cache residency gets the
+    same bytes into RAM with NO second copy -- the reader mmaps the file and the kernel
+    serves it from cache.
+
+    Exact by construction: this only reads bytes and issues a readahead hint. It changes
+    no weight, no routing decision, and no arithmetic. Enable with TARFA_PREWARM=1.
+
+    Cost is a one-off startup read of the tree (60 GiB from a spinning disk ~7 min).
+    """
+    root = root or os.environ.get("TARFA_JNF", "")
+    if not root:
+        return {"enabled": False, "reason": "TARFA_JNF unset"}
+    root = os.path.expanduser(root)
+    man_path = os.path.join(root, "manifest.json")
+    if not os.path.exists(man_path):
+        return {"enabled": False, "reason": "no manifest"}
+    man = json.load(open(man_path))
+    files, total = [], 0
+    for lid, rec in man["layers"].items():
+        for name in ("gate_up_proj", "down_proj"):
+            fp = os.path.join(root, rec[name]["file"])
+            if os.path.exists(fp):
+                files.append(fp); total += os.path.getsize(fp)
+    t0 = time.time(); read = 0
+    buf = bytearray(block)
+    mv = memoryview(buf)
+    for fp in sorted(files):
+        fd = os.open(fp, os.O_RDONLY)
+        try:
+            if hasattr(os, "posix_fadvise"):
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_WILLNEED)
+            while True:
+                n = os.preadv(fd, [mv], read_off := os.lseek(fd, 0, os.SEEK_CUR))
+                if n <= 0: break
+                os.lseek(fd, n, os.SEEK_CUR); read += n
+        finally:
+            os.close(fd)
+    el = time.time() - t0
+    return {"enabled": True, "files": len(files), "bytes": read,
+            "gib": round(read/2**30, 2), "seconds": round(el, 1),
+            "mb_s": round(read/max(el, 1e-9)/1e6, 1)}
+
+
 def read_bf16(layer, experts, device, dtype, use_ram_cache=False):
     """Return {e: (gate_up [2048,3072], down [3072,1024])} on device."""
     M = meta()[layer]

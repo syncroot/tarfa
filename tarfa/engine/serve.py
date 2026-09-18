@@ -95,6 +95,9 @@ if not LEAN:
 LOCK = threading.Lock()
 EOS = M.tok.eos_token_id
 print(f"VRAM: {torch.cuda.memory_allocated()/1e9:.1f} GB", flush=True)
+if os.environ.get("TARFA_PREWARM") == "1":
+    _pw = exact_bf16.prewarm_tree()
+    print("[tarfa] prewarm:", _pw, flush=True)
 print("READY", flush=True)
 
 @torch.no_grad()
