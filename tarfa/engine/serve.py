@@ -89,6 +89,12 @@ for i in range(M.nL): M._make_layer(i)
 M._mat(M.lm.embed_tokens, M.prefix + "embed_tokens")
 if not M.tied: M._mat(M.model.lm_head, "lm_head")              # resident lm_head (no per-token reload)
 LEAN = os.environ.get("LEAN", "1") != "0"                     # lean (default ON): drop drafter+dreamer -> ~1.6GB freed for context
+PREFILL_CHUNK = int(os.environ.get("TARFA_PREFILL_CHUNK", "0"))  # 0 = off. Bounds the
+# [1, n_heads, S, S] score matrix the SDPA *math* backend materialises. sm_75 has no flash or
+# mem-efficient kernel (and head_dim=256 + GQA rules them out anyway), so peak prefill memory is
+# quadratic in prompt length: measured 7.86 GB transient per full_attention layer at S=5018.
+# Chunking makes the peak O(chunk x total) instead of O(total^2). Nothing accumulates -- only
+# 265 MiB is retained across a 5K-token prefill -- so this is purely a peak-memory bound.
 DRAFT = None
 if not LEAN:
     print("loading 0.8B...", flush=True)
@@ -152,7 +158,16 @@ def decode_stream(ids, max_new):
     _r0 = time.perf_counter()
     try:
         pids = ids[0].tolist(); cache = DynamicCache(config=M.cfg)
-        if len(pids) > 1: big_fwd(pids[:-1], cache)
+        if len(pids) > 1:
+            _prompt = pids[:-1]
+            if PREFILL_CHUNK > 0 and len(_prompt) > PREFILL_CHUNK:
+                _n = len(_prompt)
+                for _i in range(0, _n, PREFILL_CHUNK):
+                    big_fwd(_prompt[_i:_i + PREFILL_CHUNK], cache)
+                print("[tarfa] chunked prefill: %d tokens in %d chunks of %d"
+                      % (_n, (_n + PREFILL_CHUNK - 1) // PREFILL_CHUNK, PREFILL_CHUNK), flush=True)
+            else:
+                big_fwd(_prompt, cache)
         pending = pids[-1]; produced = 0
         while produced < max_new:
             if CANCEL.is_set(): return
