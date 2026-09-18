@@ -7,7 +7,7 @@ atomic per-layer conversion (.partial then rename); mandatory manifest fields; a
 --verify mode that re-reads every emitted region against the source tensors.
 
 Usage:
-  python convert_jnf.py [--out DIR] [--layers 0-47] [--verify]
+  python convert_jnf.py [--out DIR] [--layers all|0-47] [--verify]
 """
 import argparse, hashlib, json, os, sys, time
 from pathlib import Path
@@ -18,7 +18,9 @@ import exact_bf16
 
 BLOCK = 4096
 
-def parse_layers(spec, n=48):
+def parse_layers(spec, n=None):
+    if spec.strip().lower() == "all":
+        return sorted(exact_bf16.meta().keys())
     if "-" in spec:
         a, b = spec.split("-"); return list(range(int(a), int(b) + 1))
     return [int(x) for x in spec.split(",")]
@@ -39,11 +41,12 @@ def projection_info(layer, name):
     return shard, offset, shape, size
 
 def model_meta():
-    m = {"model_id": "Qwen/Qwen3.5-122B-A10B", "revision": None, "tokenizer_revision": None}
+    mid = os.environ.get("TARFA_MODEL", "Qwen/Qwen3.5-122B-A10B")
+    m = {"model_id": mid, "revision": None, "tokenizer_revision": None}
     try:
         import glob
         snaps = glob.glob(os.path.expanduser(
-            "~/.cache/huggingface/hub/models--Qwen--Qwen3.5-122B-A10B/snapshots/*"))
+            os.path.join(exact_bf16.SNAP, "..", "*")))
         if snaps:
             m["revision"] = m["tokenizer_revision"] = os.path.basename(snaps[0])
     except Exception:
@@ -109,7 +112,7 @@ def verify(layers, out):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(HERE.parent / "jnf-v1"))
-    ap.add_argument("--layers", default="0-47")
+    ap.add_argument("--layers", default="all")
     ap.add_argument("--verify", action="store_true")
     a = ap.parse_args()
     layers = parse_layers(a.layers)

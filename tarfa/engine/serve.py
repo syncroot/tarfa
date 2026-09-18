@@ -12,7 +12,8 @@ from fastapi.concurrency import run_in_threadpool
 import uvicorn
 
 LMSTUDIO = "http://localhost:1234"                 # gateway: route other models here
-OUR_ID = "qwen3.5-122b-tarfa"                        # the fused-kernel 122B
+TARFA_MODEL = os.environ.get("TARFA_MODEL", "Qwen/Qwen3.5-122B-A10B")
+OUR_ID = os.environ.get("TARFA_MODEL_ID", TARFA_MODEL.split("/")[-1].lower() + "-tarfa")                        # the fused-kernel 122B
 import quality                                  # decode-time quality strategies (N x compute -> better reasoning)
 import fused_int4, exact_bf16
 QMODES = {"tarfa-vote-5": ("vote", 5), "tarfa-judge-3": ("judge", 3), "tarfa-refine-2": ("refine", 2)}
@@ -83,7 +84,7 @@ def load_122b():
         for i in range(M.nL): M._make_layer(i)
 
 print("loading Tarfa (fused-kernel 122B)...", flush=True)
-M = ChannelModel("Qwen/Qwen3.5-122B-A10B")
+M = ChannelModel(TARFA_MODEL)
 for i in range(M.nL): M._make_layer(i)
 M._mat(M.lm.embed_tokens, M.prefix + "embed_tokens")
 if not M.tied: M._mat(M.model.lm_head, "lm_head")              # resident lm_head (no per-token reload)

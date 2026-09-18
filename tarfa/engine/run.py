@@ -9,7 +9,7 @@ from safetensors import safe_open
 from transformers.cache_utils import DynamicCache
 from transformers.masking_utils import create_causal_mask
 
-M = TarfaFused("Qwen/Qwen3.5-122B-A10B")
+M = TarfaFused(os.environ.get("TARFA_MODEL", "Qwen/Qwen3.5-122B-A10B"))
 for i in range(M.nL): M._make_layer(i)
 M._mat(M.lm.embed_tokens, M.prefix + "embed_tokens")           # input embed resident
 if not M.tied: M._mat(M.model.lm_head, "lm_head")              # output proj resident (non-tied)

@@ -2,7 +2,31 @@
 import os, glob, struct, json, re, threading, time, mmap, torch
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-SNAP = os.path.expanduser("~/.cache/huggingface/hub/models--Qwen--Qwen3.5-122B-A10B/snapshots/dc4d348443bc740c68e2d77492492c11606384d5")
+# Source checkpoint. TARFA_SNAP wins; otherwise resolve the newest snapshot of TARFA_MODEL
+# from any known HF cache root. Falls back to the original hardcoded 122B path so existing
+# behaviour is unchanged when nothing is set.
+TARFA_MODEL = os.environ.get("TARFA_MODEL", "Qwen/Qwen3.5-122B-A10B")
+
+def _resolve_snap():
+    env = os.environ.get("TARFA_SNAP", "").strip()
+    if env:
+        return os.path.expanduser(env)
+    slug = "models--" + TARFA_MODEL.replace("/", "--")
+    roots = [os.environ.get("HF_HOME", ""), "/mnt/cold/hf",
+             os.path.expanduser("~/.cache/huggingface/hub")]
+    for r in roots:
+        if not r:
+            continue
+        for base in (os.path.join(r, slug, "snapshots"), os.path.join(r, "hub", slug, "snapshots")):
+            if os.path.isdir(base):
+                snaps = [os.path.join(base, d) for d in os.listdir(base)]
+                snaps = [d for d in snaps if os.path.isdir(d)]
+                if snaps:
+                    return max(snaps, key=os.path.getmtime)
+    return os.path.expanduser(
+        "~/.cache/huggingface/hub/models--Qwen--Qwen3.5-122B-A10B/snapshots/dc4d348443bc740c68e2d77492492c11606384d5")
+
+SNAP = _resolve_snap()
 _META = None; _FDS = {}; _POOL = ThreadPoolExecutor(max_workers=48)
 _LOCK = threading.Lock()
 PINNED = os.environ.get("BF16_PINNED", "1") == "1"

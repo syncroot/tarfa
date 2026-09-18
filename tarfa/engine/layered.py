@@ -13,7 +13,19 @@ from huggingface_hub import snapshot_download
 class LayeredModel:
     def __init__(self, repo_id, dtype=torch.float16, device="cuda"):
         self.device, self.dtype = device, dtype
-        self.path = snapshot_download(repo_id, allow_patterns=["*.json","*.safetensors","*.model","tokenizer*","*.txt","merges*","vocab*"])
+        # TARFA_SNAP short-circuits the download entirely when the checkpoint is already on
+        # disk. Without this, snapshot_download() has no cache_dir and defaults to
+        # ~/.cache/huggingface/hub -- which pulled a second 31 GB copy onto the NVMe and
+        # pushed the root filesystem past its 90% ceiling. TARFA_HF_CACHE redirects the
+        # fallback path off the NVMe.
+        _snap = os.environ.get("TARFA_SNAP", "").strip()
+        if _snap and os.path.isdir(os.path.expanduser(_snap)):
+            self.path = os.path.expanduser(_snap)
+        else:
+            _cache = os.environ.get("TARFA_HF_CACHE", "").strip() or None
+            self.path = snapshot_download(
+                repo_id, cache_dir=_cache,
+                allow_patterns=["*.json","*.safetensors","*.model","tokenizer*","*.txt","merges*","vocab*"])
         self.config = AutoConfig.from_pretrained(self.path)
         self.tok = AutoTokenizer.from_pretrained(self.path)
         with init_empty_weights():
