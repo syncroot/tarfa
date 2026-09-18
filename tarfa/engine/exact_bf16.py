@@ -27,6 +27,11 @@ def _resolve_snap():
         "~/.cache/huggingface/hub/models--Qwen--Qwen3.5-122B-A10B/snapshots/dc4d348443bc740c68e2d77492492c11606384d5")
 
 SNAP = _resolve_snap()
+# JNF v1 execution format. When TARFA_JNF points at a converted+verified tree, experts are read
+# from it instead of the raw HF shards. Same bytes (conversion is byte-verified against the
+# checkpoint), but each expert projection is 4096-aligned and independently addressable, which is
+# what the format exists for. Unset => original safetensors path, unchanged.
+JNF_DIR = os.environ.get("TARFA_JNF", "")
 _META = None; _FDS = {}; _POOL = ThreadPoolExecutor(max_workers=48)
 _LOCK = threading.Lock()
 PINNED = os.environ.get("BF16_PINNED", "1") == "1"
@@ -111,7 +116,31 @@ def stats(reset=False):
     out["read_GBps"] = round(out["bytes"] / 1e9 / out["read_seconds"], 3) if out["read_seconds"] else 0.0
     return out
 
+def _build_jnf():
+    """Build the expert map from a JNF v1 manifest. Offsets are 0 because each layer file holds
+    exactly its 256 experts back to back; read_bf16 already indexes with offset + e*expert_bytes."""
+    global _META; _META = {}
+    root = os.path.expanduser(JNF_DIR)
+    man = json.load(open(os.path.join(root, "manifest.json")))
+    if man.get("format") != "JNF" or int(man.get("version", 0)) != 1:
+        raise RuntimeError("unsupported JNF manifest: %r v%r" % (man.get("format"), man.get("version")))
+    if man.get("dtype") != "BF16":
+        raise RuntimeError("JNF dtype is %r, expected BF16" % man.get("dtype"))
+    for lid, rec in man["layers"].items():
+        entry = {}
+        for name in ("gate_up_proj", "down_proj"):
+            r = rec[name]
+            path = os.path.join(root, r["file"])
+            shape = tuple(r["shape"])
+            if shape[1] * shape[2] * 2 != r["expert_bytes"]:
+                raise RuntimeError("layer %s %s: shape/expert_bytes disagree" % (lid, name))
+            entry[name] = (path, 0, shape, "BF16")
+        _META[int(lid)] = entry
+    return _META
+
 def _build():
+    if JNF_DIR:
+        return _build_jnf()
     global _META; _META = {}
     shards = [s for s in glob.glob(os.path.join(SNAP, "*.safetensors*")) if "-of-" in os.path.basename(s)]
     for sh in shards:
