@@ -1,4 +1,4 @@
-import sys, json, threading, copy, os, subprocess, time, torch, requests
+import sys, json, threading, copy, os, subprocess, time, contextlib, torch, requests
 sys.path.insert(0, os.path.expanduser("~/airllm-test/runner")); sys.path.insert(0, "/tmp")
 from safetensors import safe_open
 from fused_int4 import TarfaFused as ChannelModel      # fused Triton MoE kernel
@@ -100,6 +100,30 @@ if not LEAN:
     print("loading 0.8B...", flush=True)
     DRAFT = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3.5-0.8B", dtype=torch.float16).to("cuda").eval()
 LOCK = threading.Lock()
+LOCK_TIMEOUT = float(os.environ.get("TARFA_LOCK_TIMEOUT", "900"))
+
+
+class Busy(Exception):
+    """The serving lock could not be acquired within TARFA_LOCK_TIMEOUT."""
+
+
+@contextlib.contextmanager
+def serving_lock():
+    """Bounded replacement for the previous unbounded `with LOCK:`.
+
+    The streaming paths acquire this inside a generator. If such a generator is abandoned
+    before it finishes -- client disconnect, closed tab -- the lock can be left held, and an
+    unbounded acquire then wedges every later request permanently with no CPU, disk or GPU
+    activity, surviving SIGTERM because uvicorn waits for in-flight requests. Bounding the
+    wait turns that into a 503 the caller can see and retry.
+    """
+    if not LOCK.acquire(timeout=LOCK_TIMEOUT):
+        raise Busy("server busy: serving lock held for more than %gs" % LOCK_TIMEOUT)
+    try:
+        yield
+    finally:
+        LOCK.release()
+
 EOS = M.tok.eos_token_id
 print(f"VRAM: {torch.cuda.memory_allocated()/1e9:.1f} GB", flush=True)
 if os.environ.get("TARFA_PREWARM") == "1":
@@ -285,6 +309,18 @@ def profile(reset: bool = False):
             PROFILE[key] = mode if key == "mode" else (batch if key == "bf16_prefill_batch" else (cache_n if key == "bf16_cache_per_layer" else (pinned if key == "bf16_pinned" else (ram_gb if key == "bf16_ram_cache_gb" else (batched_decode if key == "bf16_batched_decode" else (fadvise_top if key == "bf16_fadvise_top" else (0 if key.endswith(("calls", "tokens")) else 0.0)))))))
     return out
 
+def to_122b():
+    """Hoisted to module scope. It used to be defined near the end of chat(), after the
+    quality-mode branches that call it, so chat() returned before the name was ever bound
+    and those generators died with NameError on first use."""
+    if BACKEND["cur"] != "122b": free_lmstudio(); load_122b(); BACKEND["cur"] = "122b"
+
+
+@app.exception_handler(Busy)
+async def _busy_handler(request: Request, exc: Busy):
+    return JSONResponse({"error": {"message": str(exc), "type": "server_busy"}}, status_code=503)
+
+
 @app.post("/v1/chat/completions")
 async def chat(req: Request):
     CANCEL.clear(); b = await req.json()
@@ -296,21 +332,21 @@ async def chat(req: Request):
         def mkd(d, f): return "data: " + json.dumps({"id": "d", "object": "chat.completion.chunk", "model": DRAFT_ID, "choices": [{"index": 0, "delta": d, "finish_reason": f}]}) + "\n\n"
         if stream:
             def gd():
-                with LOCK:
+                with serving_lock():
                     first = True
                     for p in draft_gen(prompt, mx):
                         yield mkd({"role": "assistant", "content": p} if first else {"content": p}, None); first = False
                 yield mkd({}, "stop"); yield "data: [DONE]\n\n"
             return StreamingResponse(gd(), media_type="text/event-stream")
         def gend():
-            with LOCK: return "".join(draft_gen(prompt, mx))
+            with serving_lock(): return "".join(draft_gen(prompt, mx))
         return {"id": "d", "object": "chat.completion", "model": DRAFT_ID, "choices": [{"index": 0, "message": {"role": "assistant", "content": await run_in_threadpool(gend)}, "finish_reason": "stop"}]}
     if model in QMODES:                                        # === QUALITY MODE: N x compute on the 122B ===
         strat, nn = QMODES[model]; msgs = b.get("messages", []); mx = min(int(b.get("max_tokens") or 1024), 32768)
         def mkq(d, f): return "data: " + json.dumps({"id": "q", "object": "chat.completion.chunk", "model": model, "choices": [{"index": 0, "delta": d, "finish_reason": f}]}) + "\n\n"
         if stream:
             def gq():
-                with LOCK:
+                with serving_lock():
                     to_122b(); first = True
                     for kind, txt in quality.run(strat, nn, M, big_fwd, EOS, build_prompt, msgs, mx, CANCEL):
                         c = (f"\n> ⚙ {txt}…\n\n" if kind == "status" else txt)
@@ -318,7 +354,7 @@ async def chat(req: Request):
                 yield mkq({}, "stop"); yield "data: [DONE]\n\n"
             return StreamingResponse(gq(), media_type="text/event-stream")
         def genq():
-            with LOCK:
+            with serving_lock():
                 to_122b(); out = []
                 for kind, txt in quality.run(strat, nn, M, big_fwd, EOS, build_prompt, msgs, mx, CANCEL):
                     if kind == "token": out.append(txt)
@@ -327,7 +363,7 @@ async def chat(req: Request):
     if model != OUR_ID:                                        # === gateway -> LM Studio ===
         def to_lms():
             if BACKEND["cur"] != "lms" or BACKEND.get("model") != model:
-                with LOCK:
+                with serving_lock():
                     free_122b()
                     try: subprocess.run([LMS_CLI, "load", model, "-c", "16384", "-y"], timeout=300, capture_output=True)
                     except Exception: pass
@@ -345,18 +381,16 @@ async def chat(req: Request):
     msgs = b.get("messages", []); mx = min(int(b.get("max_tokens") or 2048), 32768)
     ids = M.tok(build_prompt(msgs, bool(b.get("thinking", False))), return_tensors="pt").input_ids
     def mkc(d, f): return "data: " + json.dumps({"id": "j", "object": "chat.completion.chunk", "model": OUR_ID, "choices": [{"index": 0, "delta": d, "finish_reason": f}]}) + "\n\n"
-    def to_122b():
-        if BACKEND["cur"] != "122b": free_lmstudio(); load_122b(); BACKEND["cur"] = "122b"
     if stream:
         def g():
-            with LOCK:
+            with serving_lock():
                 to_122b(); first = True
                 for p in decode_stream(ids, mx):
                     yield mkc({"role": "assistant", "content": p} if first else {"content": p}, None); first = False
             yield mkc({}, "stop"); yield "data: [DONE]\n\n"
         return StreamingResponse(g(), media_type="text/event-stream")
     def gen():
-        with LOCK: to_122b(); return "".join(decode_stream(ids, mx))
+        with serving_lock(): to_122b(); return "".join(decode_stream(ids, mx))
     return {"id": "j", "object": "chat.completion", "model": OUR_ID, "choices": [{"index": 0, "message": {"role": "assistant", "content": await run_in_threadpool(gen)}, "finish_reason": "stop"}]}
 
 if __name__ == "__main__":

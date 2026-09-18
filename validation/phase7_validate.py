@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json, sys, urllib.request
-with urllib.request.urlopen("http://127.0.0.1:8089/profile", timeout=10) as response: p=json.load(response)
+import _common
+p = _common.profile()
 r, c, s = p["runtime"], p["ram_cache"], p["system"]
 checks={"exact_bf16":r["mode"]=="bf16", "arena_enabled":c["enabled"],
         "bounded":c["resident"]<=c["slots"], "hits":c["hits"]>0,

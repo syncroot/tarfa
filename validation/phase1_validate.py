@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Phase-1 acceptance test for Tarfa exact BF16 expert input path."""
 import json
+import _common
+_NL, _NE, _BPE = _common.model_shape()
 import os
 import random
 import sys
@@ -18,8 +20,30 @@ def fail(message):
     raise AssertionError(message)
 
 
+def source_meta():
+    """Metadata for the ORIGINAL safetensors checkpoint.
+
+    exact_bf16.meta() returns JNF entries when TARFA_JNF is set, so using it here would
+    compare the tree against itself -- and safe_open() would fail with "header too large"
+    on a raw expert plane. Temporarily disable the JNF path to get the real source.
+    """
+    saved_dir, saved_meta = exact_bf16.JNF_DIR, exact_bf16._META
+    try:
+        exact_bf16.JNF_DIR = ""
+        exact_bf16._META = None
+        return exact_bf16._build()
+    finally:
+        exact_bf16.JNF_DIR, exact_bf16._META = saved_dir, saved_meta
+
+
+_SRC = None
+
+
 def checkpoint_tensor(layer, projection, expert):
-    shard, _offset, shape, dtype = exact_bf16.meta()[layer][projection]
+    global _SRC
+    if _SRC is None:
+        _SRC = source_meta()
+    shard, _offset, shape, dtype = _SRC[layer][projection]
     if dtype != "BF16":
         fail(f"layer {layer} {projection}: expected BF16, found {dtype}")
     with safe_open(shard, framework="pt", device="cpu") as handle:
@@ -35,11 +59,11 @@ def checkpoint_tensor(layer, projection, expert):
 def main():
     random.seed(122)
     metadata = exact_bf16.meta()
-    if sorted(metadata) != list(range(48)):
-        fail(f"expected layers 0..47, found {sorted(metadata)}")
+    if sorted(metadata) != list(range(_NL)):
+        fail(f"expected layers 0..{_NL - 1}, found {sorted(metadata)}")
 
-    samples = [(0, 0), (47, 255)]
-    samples += [(random.randrange(48), random.randrange(256)) for _ in range(4)]
+    samples = [(0, 0), (_NL - 1, _NE - 1)]
+    samples += [(random.randrange(_NL), random.randrange(_NE)) for _ in range(4)]
     results = []
     started = time.perf_counter()
     for layer, expert in samples:
