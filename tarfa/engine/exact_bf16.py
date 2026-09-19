@@ -142,6 +142,7 @@ def _build():
     if JNF_DIR:
         return _build_jnf()
     global _META; _META = {}
+    _src = {}          # (layer, proj) -> checkpoint key, so a double binding is caught
     shards = [s for s in glob.glob(os.path.join(SNAP, "*.safetensors*")) if "-of-" in os.path.basename(s)]
     for sh in shards:
         with open(sh, "rb") as f:
@@ -149,9 +150,22 @@ def _build():
             if n > 100_000_000: continue                  # not a real safetensors header
             hdr = json.loads(f.read(n)); base = 8 + n
         for k, v in hdr.items():
+            # The checkpoint also ships an MTP (multi-token-prediction) draft block whose
+            # tensors are named mtp.layers.N.mlp.experts.*, which this unanchored search
+            # matched just as happily as the real stack. Whichever key the shard scan saw
+            # last won, so layer 0 could silently bind its experts to the draft block.
+            if k.startswith("mtp.") or ".mtp." in k:
+                continue
             m = re.search(r"layers\.(\d+)\.mlp\.experts\.(gate_up_proj|down_proj)", k)
             if m:
-                _META.setdefault(int(m.group(1)), {})[m.group(2)] = (sh, base + v["data_offsets"][0], tuple(v["shape"]), v["dtype"])
+                lid, proj = int(m.group(1)), m.group(2)
+                prev = _src.get((lid, proj))
+                if prev is not None and prev != k:
+                    raise RuntimeError(
+                        "two checkpoint tensors claim layer %d %s: %r and %r. Refusing to guess "
+                        "which is the real expert stack." % (lid, proj, prev, k))
+                _src[(lid, proj)] = k
+                _META.setdefault(lid, {})[proj] = (sh, base + v["data_offsets"][0], tuple(v["shape"]), v["dtype"])
     return _META
 
 def meta():
