@@ -10,6 +10,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 DOCS = ["README.md", "EXACTNESS.md", "ARCHITECTURE.md", "BENCHMARKS.md", "docs/STORY.md"]
 V = REPO / "validation"
 exact = json.loads((V / "bench_exact_bf16.json").read_text())
+exact_jul = json.loads((V / "history/2026-07-20/bench_exact_bf16.json").read_text())  # dated history
 fast = json.loads((V / "bench_fast_int4.json").read_text())
 power = json.loads((V / "power_metrics.json").read_text())
 p12 = json.loads((V / "phase12/completion_results.json").read_text())
@@ -22,8 +23,8 @@ HARDWARE = {"W": {160.0}}  # card power limit, a spec not a measurement
 def r(x, n): return round(float(x), n)
 
 allowed = {
-    "tok/s": {r(exact["tok_per_s"], 2), r(fast["tok_per_s"], 2), *FAST_RUN_RANGE},
-    "s/tok": {r(exact["s_per_tok_mean"], 2), r(fast["s_per_tok_mean"], 2)},
+    "tok/s": {r(exact["tok_per_s"], 2), r(exact_jul["tok_per_s"], 2), r(fast["tok_per_s"], 2), *FAST_RUN_RANGE},
+    "s/tok": {r(exact["s_per_tok_mean"], 2), r(exact_jul["s_per_tok_mean"], 2), r(fast["s_per_tok_mean"], 2)},
     "J": {r(power["exact"]["j_per_tok"], 1), r(power["fast"]["j_per_tok"], 1)},
     "W": {r(power["exact"]["watts"], 1), r(power["fast"]["watts"], 1),
           r(power["exact"]["watts"], 0), r(power["fast"]["watts"], 0), *HARDWARE["W"]},

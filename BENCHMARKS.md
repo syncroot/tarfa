@@ -12,12 +12,21 @@ this is the hardware people actually have.
 
 | mode | decode | load | VRAM | weights |
 |---|---|---|---|---|
-| **exact BF16** (default) | **0.35 tok/s** (2.87 s/tok) | 22 s | 12.4 GB | bit-identical to checkpoint |
-| **fast int4** (labeled) | **1.81 tok/s** (0.55 s/tok) | 21 s | 12.4 GB | int4 symmetric, per-row fp16 scale |
+| **exact BF16** (default), 2026-10-20 | **0.39 tok/s** (2.55 s/tok) | 62 s | 12.5 GB | bit-identical to checkpoint, fp32 logits |
+| exact BF16, 2026-07-20 ([history](validation/history/2026-07-20/)) | 0.35 tok/s (2.87 s/tok) | 22 s | 12.4 GB | bit-identical; head ran in bf16 |
+| **fast int4** (labeled), 2026-07-20 | **1.81 tok/s** (0.55 s/tok) | 21 s | 12.4 GB | int4 symmetric, per-row fp16 scale |
+
+**Receipt setups.** 2026-07-20: both modes, one RTX 4060 Ti, 31 GB RAM, experts read from the HF
+checkpoint on PCIe 4 NVMe. 2026-10-20 (exact only, after the fp32-logits fix and the September
+engine commits): same RTX 4060 Ti alone (`CUDA_VISIBLE_DEVICES`), the process capped at 31 GiB of
+RAM including page cache (`systemd-run -p MemoryMax=31G`), page cache evicted before the run,
+experts read from the SHA-256-verified JNF tree on a Samsung 980 PRO (PCIe 4 NVMe). The fast-mode
+int4 expert tree no longer exists on the box, so fast mode was not re-measured; the chart below is
+the July paired run. Same 10-token prompt, greedy; the 8 exact tokens are identical in both runs.
 
 Exactness costs ~5x in speed (fast-mode runs measured 1.4 to 1.8 tok/s depending on cache warmth; the committed receipt is the number in the table), because exact mode streams **~19 GB of BF16 expert weights (SHA-256-verified at convert time)
-from NVMe per decoded token** while int4 moves an eighth of that. We think 0.35 tok/s for a
-bit-identical 122B on a $400 GPU is remarkable; we also think you deserve to know it's 0.35 and
+from NVMe per decoded token** while int4 moves an eighth of that. We think 0.39 tok/s for a
+bit-identical 122B on a $400 GPU is remarkable; we also think you deserve to know it's 0.39 and
 not "up to 2".
 
 A detail worth reporting because it cuts both ways: on this benchmark prompt, the fast int4 mode's
@@ -26,13 +35,13 @@ Phase 9 audit proved it doesn't always, batched-verification numerics diverge fr
 decode, which is precisely why fast mode carries a permanent label instead of a footnote.
 
 **Prefill and what is not yet measured.** The same receipts record prefill of the 10-token
-benchmark prompt: 16.2 s in exact mode, 5.8 s in fast mode (that is the time to first token at this
+benchmark prompt: 27.6 s in exact mode (2026-10-20; 16.2 s in July), 5.8 s in fast mode (that is the time to first token at this
 prompt length). Not yet measured, and therefore not claimed: prefill throughput at realistic prompt
-lengths, the maximum context that fits in the ~3.6 GB of VRAM left beside the 12.4 GB resident
+lengths, the maximum context that fits in the ~3.6 GB of VRAM left beside the ~12.5 GB resident
 set, and agreement with an external reference implementation (`validation/golden_tokens.py`,
 pending its first committed run).
 
-## 2. What 0.35 tok/s actually buys you
+## 2. What 0.39 tok/s actually buys you
 
 Slow is a fact; what matters is what the slowness purchases. In exact mode, every decoded token is
 produced by the checkpoint's own BF16 weights, read from disk as convert-time-verified bytes, through the model's
@@ -40,7 +49,7 @@ native top-8 router, with fp32 logits. There is no quantized cousin standing in 
 For model auditing, interpretability research, and reproducible evaluation (any work where the
 object of study must *be* the model) that property isn't a nice-to-have; it's the prerequisite.
 Elsewhere, engines get their speed by quietly not having it. Tarfa has it by default and posts the
-bill: 2.87 seconds per token on a $400 GPU. When you don't need the guarantee, the labeled fast
+bill: 2.55 seconds per token on a $400 GPU. When you don't need the guarantee, the labeled fast
 mode gives the speed back.
 
 ## 3. Where the exact-mode speed came from (and what was rejected)

@@ -25,7 +25,7 @@ $ tarfa serve
   <img src="docs/media/price_of_exactness.svg" width="70%" alt="exact vs fast decode speed">
 </p>
 
-Same GPU, same 122B model, same prompt: exact BF16 costs ~5× the speed of the labeled int4 fast
+Same GPU, same 122B model, same prompt (2026-07-20 paired run): exact BF16 costs ~5× the speed of the labeled int4 fast
 mode, because each exact token moves **~19 GB of convert-time-verified expert weights from NVMe**.
 
 <p align="center">
@@ -51,8 +51,8 @@ correctness-sensitive work. Tarfa's contract:
 
 | mode | decode speed ([receipts](validation/)) | weights | greedy output |
 |---|---|---|---|
-| **exact BF16** (default) | 0.35 tok/s (2.87 s/tok) | bit-identical | reference |
-| **fast** (fused int4 Triton) | 1.81 tok/s (runs: 1.4–1.8) | int4 symmetric | may differ (labeled) |
+| **exact BF16** (default) | 0.39 tok/s (2.55 s/tok), 2026-10-20, fp32 logits | bit-identical | reference |
+| **fast** (fused int4 Triton) | 1.81 tok/s (runs: 1.4–1.8), 2026-07-20 | int4 symmetric | may differ (labeled) |
 
 Exact mode moves ~19 GB of expert weights from NVMe per decoded token. "Verified" means: every
 expert is SHA-256-hashed against the HF checkpoint once, at convert time (`tarfa convert --verify`

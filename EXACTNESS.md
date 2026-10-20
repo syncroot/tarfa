@@ -13,7 +13,7 @@ same router semantics, the same greedy tokens. Anything else is a separate label
 3. Final logits are computed in fp32 (bf16 over a 248k vocab can flip the argmax): bf16 head weights
    upcast exactly, fp32 accumulation, TF32 refused (`fp32_logits` in `tarfa/engine/layered.py`).
    Until 2026-10-20 the untied head ran in bf16 and was upcast afterwards; the 2026-07-20 receipts
-   predate the fix.
+   predate the fix, `validation/bench_exact_bf16.json` (2026-10-20) does not.
 4. Predictive prefetch / overlap tricks that can change numerics are off in exact mode.
 5. Every optimization ships with a validation script (`validation/phase*_validate.py`). Scope, stated
    plainly: phase 1 proves streamed experts are byte-equal to the checkpoint; phases 2–7 assert the
@@ -44,7 +44,7 @@ Full narrative: [docs/PHASE_LOG.md](docs/PHASE_LOG.md).
 
 ## The fast mode is not exact (and says so)
 
-`tarfa start-fast` runs the fused int4 Triton path (1.81 tok/s vs 0.35 for exact, per the committed receipts). Its output may differ
+`tarfa start-fast` runs the fused int4 Triton path (1.81 tok/s in July vs 0.39 for exact today, per the committed receipts). Its output may differ
 from exact greedy decoding. It exists because sometimes you want speed; it is never the default,
 and it must never be used for equivalence testing, reproducible research, exact benchmarks, or
 correctness-sensitive evaluation. If a future optimization makes fast mode exact, it graduates;
