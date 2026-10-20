@@ -42,8 +42,12 @@ def run_reference(n_new):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(MODEL)
+    # GOLDEN_MAX_CPU_MEM (e.g. "140GiB") caps RAM so the reference can run CPU-only beside other
+    # services (CUDA_VISIBLE_DEVICES=""); anything over the cap is offloaded to HF_OFFLOAD.
+    cap = os.environ.get("GOLDEN_MAX_CPU_MEM")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL, dtype=torch.bfloat16, device_map="auto",
+        max_memory={"cpu": cap} if cap else None,
         offload_folder=os.environ.get("HF_OFFLOAD", str(GOLDEN / "offload")))
     model.eval()
     out = []
@@ -147,7 +151,12 @@ def main():
         sys.exit(compare(GOLDEN / "reference_hf.json", GOLDEN / "tarfa_exact.json", a.tie_eps))
     t0 = time.time()
     res = run_reference(a.n_new) if a.cmd == "reference" else run_tarfa(a.n_new)
-    engine = "transformers (HF, bf16, accelerate offload)" if a.cmd == "reference" else "tarfa exact BF16"
+    if a.cmd == "reference":
+        import transformers
+        engine = (f"transformers {transformers.__version__} (HF, bf16, device_map=auto, "
+                  f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', 'unset')!r})")
+    else:
+        engine = "tarfa exact BF16"
     out = a.out or GOLDEN / ("reference_hf.json" if a.cmd == "reference" else "tarfa_exact.json")
     out.write_text(json.dumps({"engine": engine, "model": MODEL, "n_new": a.n_new,
                                "elapsed_s": round(time.time() - t0, 1), "results": res},
