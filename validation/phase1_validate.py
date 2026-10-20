@@ -11,7 +11,7 @@ import time
 import torch
 from safetensors import safe_open
 
-RUNTIME = os.environ.get("TARFA_RUNTIME", os.path.join(os.path.dirname(__file__), "runtime"))
+RUNTIME = os.environ.get("TARFA_RUNTIME", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tarfa", "engine"))
 sys.path.insert(0, RUNTIME)
 import exact_bf16
 

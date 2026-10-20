@@ -6,13 +6,17 @@ same router semantics, the same greedy tokens. Anything else is a separate label
 
 ## Invariants (exact mode)
 
-1. Expert weights are read from the original BF16 checkpoint (or its SHA-256-verified JNF
-   conversion), bit-identical, never re-quantized.
+1. Expert weights are read from the original BF16 checkpoint (or its JNF conversion, SHA-256-verified
+   per expert at convert time), bit-identical, never re-quantized. Runtime reads are copies of those
+   verified bytes and are not re-hashed per token.
 2. Router top-k is the model's native 8. No truncation (`JTOPK=8`).
 3. Final logits are computed in fp32 (bf16 over a 152k vocab flips argmax).
 4. Predictive prefetch / overlap tricks that can change numerics are off in exact mode.
-5. Every optimization ships with a validation script (`validation/phase*_validate.py`) proving
-   invariants 1–4 before it is accepted.
+5. Every optimization ships with a validation script (`validation/phase*_validate.py`). Scope, stated
+   plainly: phase 1 proves streamed experts are byte-equal to the checkpoint; phases 2–7 assert the
+   exact-mode flags plus byte and routing accounting from the live `/profile`. An output-level check
+   against an external reference (greedy tokens vs Hugging Face transformers) is
+   `validation/golden_tokens.py`; its match rate is not yet published.
 
 ## The ledger: accepted and rejected
 
@@ -30,14 +34,14 @@ is advertising; this table is the audit trail.
 | 9 | speculative decoding audit | batched-verification numerics diverge from single-token decode → greedy output can differ | ⚠ demoted to labeled fast mode |
 | 10 | physical-layout & lossless-compression acceleration | no exact win | ❌ rejected |
 | 11 | request-local router-signal prefetch | gated | ⚠ gated |
-| 12 | completion-overlap serving | 2.95 → 2.63 s/tok (−11%), exact | ✅ accepted |
+| 12 | completion-overlap expert reads | I/O replay, 96 held-out reads: 2.95 → 2.52 s median (−14.6%), exact | ✅ accepted |
 | heat | learned expert-heat ledger, RAM pin, zero-copy VRAM hot tier | exact (device/dtype contract honored) | ✅ accepted |
 
 Full narrative: [docs/PHASE_LOG.md](docs/PHASE_LOG.md).
 
 ## The fast mode is not exact (and says so)
 
-`tarfa start-fast` runs the fused int4 Triton path (~2–3 tok/s vs ~0.34). Its output may differ
+`tarfa start-fast` runs the fused int4 Triton path (1.81 tok/s vs 0.35 for exact, per the committed receipts). Its output may differ
 from exact greedy decoding. It exists because sometimes you want speed; it is never the default,
 and it must never be used for equivalence testing, reproducible research, exact benchmarks, or
 correctness-sensitive evaluation. If a future optimization makes fast mode exact, it graduates;
@@ -47,5 +51,5 @@ until then the label stays.
 
 Model auditing, interpretability, and safety evaluation all assume you are studying *the model*,
 not a quantized cousin with a truncated router. On consumer hardware that assumption is almost
-always false. Tarfa makes it true, and makes the cost of making it true visible: ~19 GB of verified
-NVMe reads per token. Exactness is expensive. Hiding that expense is how everyone else got fast.
+always false. Tarfa makes it true, and makes the cost of making it true visible: ~19 GB of NVMe reads per token
+(verified once at convert time). Exactness is expensive. Hiding that expense is how everyone else got fast.

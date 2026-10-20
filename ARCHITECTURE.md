@@ -21,7 +21,7 @@ and per file, atomic conversion from the authoritative HF checkpoint.
 
 **Exact BF16 transport** (`engine/exact_bf16.py`): parallel `preadv` of exactly the routed experts
 into reusable pinned host buffers (Phase 5), non-blocking H2D, read/compute overlap where proven
-exact (Phase 8), completion-overlap serving (−11%, Phase 12).
+exact (Phase 8), completion-overlap reads (−14.6% on the I/O replay, Phase 12).
 
 **Heat tiering**: a learned expert-heat ledger ranks experts by observed routing
 frequency; the hottest get a static RAM pin, the hottest-of-hot a zero-copy VRAM tier. Hits skip
@@ -29,7 +29,7 @@ NVMe entirely; the device/dtype contract is validated on every tier hit. Exactne
 tiers change *where* bytes come from, never *which* bytes.
 
 **Fast mode** (`engine/fused_int4.py` + `engine/moe_kernel.py`): int4 nibble-packed experts
-(per-row fp16 scale) with a fused Triton MoE kernel; ~2–3 tok/s. Non-exact, labeled, opt-in.
+(per-row fp16 scale) with a fused Triton MoE kernel; 1.81 tok/s (receipt). Non-exact, labeled, opt-in.
 
 **Serving** (`engine/serve.py`): OpenAI-compatible HTTP API (:8089), single-GPU aware,
 usage ledger, terminal + web UI.

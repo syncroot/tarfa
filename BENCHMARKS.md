@@ -12,36 +12,44 @@ this is the hardware people actually have.
 
 | mode | decode | load | VRAM | weights |
 |---|---|---|---|---|
-| **exact BF16** (default) | **0.35 tok/s** (2.86 s/tok) | 22 s | 12.4 GB | bit-identical to checkpoint |
+| **exact BF16** (default) | **0.35 tok/s** (2.87 s/tok) | 22 s | 12.4 GB | bit-identical to checkpoint |
 | **fast int4** (labeled) | **1.81 tok/s** (0.55 s/tok) | 21 s | 12.4 GB | int4 symmetric, per-row fp16 scale |
 
-Exactness costs ~5x in speed (fast-mode runs measured 1.4 to 1.8 tok/s depending on cache warmth; the committed receipt is the number in the table), because exact mode streams **~19 GB of verified BF16 expert weights
+Exactness costs ~5x in speed (fast-mode runs measured 1.4 to 1.8 tok/s depending on cache warmth; the committed receipt is the number in the table), because exact mode streams **~19 GB of BF16 expert weights (SHA-256-verified at convert time)
 from NVMe per decoded token** while int4 moves an eighth of that. We think 0.35 tok/s for a
 bit-identical 122B on a $400 GPU is remarkable; we also think you deserve to know it's 0.35 and
 not "up to 2".
 
 A detail worth reporting because it cuts both ways: on this benchmark prompt, the fast int4 mode's
-greedy continuation **matched exact BF16 token-for-token**. Quantization often agrees. But our own
+greedy continuation **matched exact BF16 token-for-token** over the 8 tokens both receipts cover. Quantization often agrees. But our own
 Phase 9 audit proved it doesn't always, batched-verification numerics diverge from single-token
 decode, which is precisely why fast mode carries a permanent label instead of a footnote.
+
+**Prefill and what is not yet measured.** The same receipts record prefill of the 10-token
+benchmark prompt: 16.2 s in exact mode, 5.8 s in fast mode (that is the time to first token at this
+prompt length). Not yet measured, and therefore not claimed: prefill throughput at realistic prompt
+lengths, the maximum context that fits in the ~3.6 GB of VRAM left beside the 12.4 GB resident
+set, and agreement with an external reference implementation (`validation/golden_tokens.py`,
+pending its first committed run).
 
 ## 2. What 0.35 tok/s actually buys you
 
 Slow is a fact; what matters is what the slowness purchases. In exact mode, every decoded token is
-produced by the checkpoint's own BF16 weights, read and verified from disk, through the model's
+produced by the checkpoint's own BF16 weights, read from disk as convert-time-verified bytes, through the model's
 native top-8 router, with fp32 logits. There is no quantized cousin standing in for the model.
 For model auditing, interpretability research, and reproducible evaluation (any work where the
 object of study must *be* the model) that property isn't a nice-to-have; it's the prerequisite.
 Elsewhere, engines get their speed by quietly not having it. Tarfa has it by default and posts the
-bill: 2.86 seconds per token on a $400 GPU. When you don't need the guarantee, the labeled fast
+bill: 2.87 seconds per token on a $400 GPU. When you don't need the guarantee, the labeled fast
 mode gives the speed back.
 
 ## 3. Where the exact-mode speed came from (and what was rejected)
 
 ![phase12 overlap](docs/media/phase12_overlap.svg)
 
-Serving-level completion overlap took exact decode from 2.95 to 2.63 s/tok (−11%) with zero
-numeric change: the kind of win we accept. The full ledger of accepted **and rejected** ideas
+Completion-driven expert reads cut the held-out I/O replay from 2.95 to 2.52 s median (−14.6%,
+`validation/phase12/completion_results.json`) with zero numeric change: the kind of win we accept.
+This is a read-path replay, not an end-to-end decode receipt. The full ledger of accepted **and rejected** ideas
 (a 1.8 GB cache with a 3.3% hit rate; a RAM arena that saved 24.7 GB of NVMe traffic and still
 lost 9.9% end-to-end; speculative decoding demoted for greedy divergence) lives in
 [EXACTNESS.md](EXACTNESS.md). Benchmarks that only show the wins are marketing.
