@@ -42,12 +42,13 @@ def run_reference(n_new):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(MODEL)
-    # GOLDEN_MAX_CPU_MEM (e.g. "140GiB") caps RAM so the reference can run CPU-only beside other
-    # services (CUDA_VISIBLE_DEVICES=""); anything over the cap is offloaded to HF_OFFLOAD.
-    cap = os.environ.get("GOLDEN_MAX_CPU_MEM")
+    # GOLDEN_MAX_GPU_MEM / GOLDEN_MAX_CPU_MEM (e.g. "13GiB", "150GiB") cap what accelerate places on
+    # GPU 0 and in RAM; the rest is offloaded to disk (HF_OFFLOAD). Unset = accelerate's defaults.
+    cap = {k: v for k, v in ((0, os.environ.get("GOLDEN_MAX_GPU_MEM")),
+                             ("cpu", os.environ.get("GOLDEN_MAX_CPU_MEM"))) if v}
     model = AutoModelForCausalLM.from_pretrained(
         MODEL, dtype=torch.bfloat16, device_map="auto",
-        max_memory={"cpu": cap} if cap else None,
+        max_memory=cap or None,
         offload_folder=os.environ.get("HF_OFFLOAD", str(GOLDEN / "offload")))
     model.eval()
     out = []
@@ -122,14 +123,15 @@ def compare(ref_path, tarfa_path, tie_eps):
     rows, matched = [], 0
     for a, b in zip(ref["results"], tar["results"]):
         assert a["prompt_ids"] == b["prompt_ids"], f"tokenization differs for {a['prompt']!r}"
-        div = next((i for i, (x, y) in enumerate(zip(a["tokens"], b["tokens"])) if x != y), None)
-        ok = div is None and len(a["tokens"]) == len(b["tokens"])
+        n = min(len(a["tokens"]), len(b["tokens"]))       # the reference may decode fewer tokens
+        div = next((i for i in range(n) if a["tokens"][i] != b["tokens"][i]), None)
+        ok = div is None
         matched += ok
         rows.append({"prompt": a["prompt"], "match": ok, "first_divergence": div,
                      "ref_margin_at_divergence": None if div is None else a["top2_margin"][div],
                      "near_tie": None if div is None else a["top2_margin"][div] < tie_eps})
     report = {"model": MODEL, "reference": ref["engine"], "candidate": tar["engine"],
-              "tokens_per_prompt": ref["n_new"], "prompts": len(rows), "matched": matched,
+              "tokens_per_prompt": min(ref["n_new"], tar["n_new"]), "prompts": len(rows), "matched": matched,
               "match_rate": f"{matched}/{len(rows)}", "tie_eps": tie_eps,
               "logits_dtype": {"reference": ref["results"][0]["logits_dtype"],
                                "tarfa": tar["results"][0]["logits_dtype"]},
