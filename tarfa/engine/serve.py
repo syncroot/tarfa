@@ -188,10 +188,7 @@ def big_fwd(token_list, cache):
     _layer_s = time.perf_counter() - _l0
     M._mat(M.lm.norm, M.prefix + "norm"); h = M.lm.norm(h); M._free(M.lm.norm)
     h = h[:, -1:, :]                                            # only the last position's logits are ever used (decode S=1;
-    if M.tied:                                                  # prefill discards them) -> avoids a ~Nx152k fp32 OOM on long prompts
-        logits = torch.matmul(h.float(), M.lm.embed_tokens.weight.float().t())
-    else:
-        logits = M.model.lm_head(h).float()
+    logits = M.logits(h)                                        # prefill discards them) -> avoids a ~Nx248k fp32 OOM on long prompts
     if torch.cuda.is_available(): torch.cuda.synchronize()
     _elapsed = time.perf_counter() - _f0; _kind = "decode" if S == 1 else "prefill"
     PROFILE["forward_calls"] += 1; PROFILE[f"{_kind}_calls"] += 1

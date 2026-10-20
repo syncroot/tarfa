@@ -10,7 +10,10 @@ same router semantics, the same greedy tokens. Anything else is a separate label
    per expert at convert time), bit-identical, never re-quantized. Runtime reads are copies of those
    verified bytes and are not re-hashed per token.
 2. Router top-k is the model's native 8. No truncation (`JTOPK=8`).
-3. Final logits are computed in fp32 (bf16 over a 152k vocab flips argmax).
+3. Final logits are computed in fp32 (bf16 over a 248k vocab can flip the argmax): bf16 head weights
+   upcast exactly, fp32 accumulation, TF32 refused (`fp32_logits` in `tarfa/engine/layered.py`).
+   Until 2026-10-20 the untied head ran in bf16 and was upcast afterwards; the 2026-07-20 receipts
+   predate the fix.
 4. Predictive prefetch / overlap tricks that can change numerics are off in exact mode.
 5. Every optimization ships with a validation script (`validation/phase*_validate.py`). Scope, stated
    plainly: phase 1 proves streamed experts are byte-equal to the checkpoint; phases 2–7 assert the

@@ -31,10 +31,7 @@ def big_fwd(token_list, cache):
         o = M._make_layer(i)(h, position_embeddings=pe, attention_mask=mask, position_ids=text_pos, past_key_values=cache, use_cache=True)
         h = o[0] if isinstance(o, tuple) else o
     M._mat(M.lm.norm, M.prefix + "norm"); h = M.lm.norm(h); M._free(M.lm.norm)
-    if M.tied:
-        logits = torch.matmul(h.float(), M.lm.embed_tokens.weight.float().t())   # resident, no reload
-    else:
-        logits = M.model.lm_head(h).float()                                     # resident lm_head, no reload
+    logits = M.logits(h)                                                        # resident head, fp32
     return logits[0]
 
 prompt = "Write a detailed paragraph about how rivers shape the landscape over geological time."

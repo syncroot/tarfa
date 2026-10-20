@@ -95,10 +95,8 @@ def run_tarfa(n_new):
             o = M._make_layer(i)(h, position_embeddings=pe, attention_mask=m, position_ids=tp, past_key_values=cache, use_cache=True)
             h = o[0] if isinstance(o, tuple) else o
         h = M.lm.norm(h)[:, -1:, :]
-        if M.tied:
-            return torch.matmul(h.float(), M.lm.embed_tokens.weight.float().t())[0, -1], "float32"
-        lg = M.model.lm_head(h)
-        return lg.float()[0, -1], str(lg.dtype)
+        lg = M.logits(h)
+        return lg[0, -1], str(lg.dtype)
 
     out = []
     for p in PROMPTS:

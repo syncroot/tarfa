@@ -10,6 +10,19 @@ from transformers.masking_utils import create_causal_mask
 from accelerate import init_empty_weights
 from huggingface_hub import snapshot_download
 
+def fp32_logits(h, W, chunk=16384):
+    """Final logits in fp32 (EXACTNESS invariant 3: bf16 over a 248k vocab can flip the argmax).
+    bf16 -> fp32 upcast is exact; the matmul accumulates in fp32. Chunked over the vocab so the fp32
+    copy of the weight never exceeds chunk*hidden*4 bytes (~200 MB) instead of the whole head."""
+    if torch.get_float32_matmul_precision() != "highest" or torch.backends.cuda.matmul.allow_tf32:
+        raise RuntimeError("fp32 logits need full-precision matmul (TF32 is enabled)")
+    h = h.float()
+    out = torch.empty(*h.shape[:-1], W.shape[0], device=h.device, dtype=torch.float32)
+    for s in range(0, W.shape[0], chunk):
+        out[..., s:s + chunk] = h @ W[s:s + chunk].float().t()
+    return out
+
+
 class LayeredModel:
     def __init__(self, repo_id, dtype=torch.float16, device="cuda"):
         self.device, self.dtype = device, dtype
@@ -69,6 +82,9 @@ class LayeredModel:
         sd = self._gather(pre)
         module.load_state_dict({k[len(pre):]: v.to(self.device, self.dtype) for k, v in sd.items()}, strict=False, assign=True)
 
+    def logits(self, h):                      # fp32 head, tied or not (embed/lm_head must be resident)
+        return fp32_logits(h, self.lm.embed_tokens.weight if self.tied else self.model.lm_head.weight)
+
     def _free(self, module): module.to_empty(device="meta")
 
     def _make_layer(self, i):                 # fresh init => linear-attn buffers computed
@@ -107,10 +123,9 @@ class LayeredModel:
                 del layer; torch.cuda.empty_cache()
             self._mat(self.lm.norm, self.prefix + "norm"); h = self.lm.norm(h); self._free(self.lm.norm)
             if self.tied:
-                W = self.lm.embed_tokens.weight
-                logits = torch.matmul(h[:, -1:, :].float(), W.float().t()).to(self.dtype); self._free(self.lm.embed_tokens)
+                logits = self.logits(h[:, -1:, :]); self._free(self.lm.embed_tokens)
             else:
-                self._mat(self.model.lm_head, "lm_head"); logits = self.model.lm_head(h[:, -1:, :]); self._free(self.model.lm_head)
+                self._mat(self.model.lm_head, "lm_head"); logits = self.logits(h[:, -1:, :]); self._free(self.model.lm_head)
             nxt = logits[:, -1, :].argmax(-1, keepdim=True)
             gen = torch.cat([gen, nxt], dim=1); past += S
             dt = time.time() - t0; tt.append(dt)

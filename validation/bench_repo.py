@@ -42,7 +42,7 @@ def fwd(tl, cache):
         o = M._make_layer(i)(h, position_embeddings=pe, attention_mask=m, position_ids=tp, past_key_values=cache, use_cache=True)
         h = o[0] if isinstance(o, tuple) else o
     h = M.lm.norm(h)[:, -1:, :] if hasattr(M.lm.norm, "weight") and M.lm.norm.weight.device.type == "cuda" else h[:, -1:, :]
-    return M.model.lm_head(h).float()[0] if not M.tied else torch.matmul(h.float(), M.lm.embed_tokens.weight.float().t())[0]
+    return M.logits(h)[0]
 
 M._mat(M.lm.norm, M.prefix + "norm")
 PROMPT = "The three most important considerations when designing a database index are"
