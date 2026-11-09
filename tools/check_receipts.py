@@ -92,8 +92,10 @@ for f in ("README.md", "BENCHMARKS.md"):
 
 # ---- GLM-5.3-Flash engine (experimental) ----
 GJ = "validation/glm5/bench_story.json"
-ROWS = {"llamacpp": "| llama.cpp, production flags", "tarfa_plain": "| Tarfa, plain decode (",
+ROWS = {"llamacpp": "| llama.cpp, production flags (", "tarfa_plain": "| Tarfa, plain decode (",
         "tarfa_mtp": "| Tarfa, MTP speculative decode ("}
+old = glm5["session_2026_11_07"]                     # superseded first comparison, its own table
+OLD_ROWS = {k: v.rstrip(" (") + ", 2026-11-07" for k, v in ROWS.items()}
 best = {}
 for k in ROWS:
     runs = glm5[k]["runs_tok_per_s"]
@@ -101,20 +103,27 @@ for k in ROWS:
     if glm5[k]["best_tok_per_s"] != best[k]: bad(GJ, 0, f"{k}: best_tok_per_s is not the max of its runs")
 chk = glm5["checks_2026_11_09"]
 CHECK_ROWS = {"tarfa_plain": "| Tarfa, plain decode, check", "tarfa_mtp": "| Tarfa, MTP speculative decode, check"}
-mtp_sets = [glm5["tarfa_mtp"], chk["tarfa_mtp"]]
+mtp_sets = [glm5["tarfa_mtp"], chk["tarfa_mtp"], old["tarfa_mtp"]]
 for m in mtp_sets:
     if not (len(m["runs_tok_per_s"]) == len(m["verify_steps"]) == len(m["drafts_accepted"])):
         bad(GJ, 0, "tarfa_mtp: runs, verify_steps and drafts_accepted differ in length")
 fmt = lambda v: f"{v:.2f}"
 runs_2dp = ({fmt(v) for k in ROWS for v in glm5[k]["runs_tok_per_s"]}
             | {fmt(v) for k in CHECK_ROWS for v in chk[k]["runs_tok_per_s"]}
-            | {fmt(v) for v in glm5["llamacpp"]["t8_runs_tok_per_s"]})
+            | {fmt(v) for k in OLD_ROWS for v in old[k]["runs_tok_per_s"]})
 ratio = {k: f"{best[k] / best['llamacpp']:.1f}" for k in ("tarfa_plain", "tarfa_mtp")}
+old_ratio = {k: f"{max(old[k]['runs_tok_per_s']) / max(old['llamacpp']['runs_tok_per_s']):.1f}" for k in ("tarfa_plain", "tarfa_mtp")}
 accept = round(100 * sum(sum(m["drafts_accepted"]) for m in mtp_sets) / sum(sum(m["verify_steps"]) for m in mtp_sets))
 
 g = (REPO / GLM5_DOC).read_text().splitlines()
 for k, label in ROWS.items():                        # each table row carries its own engine's figures
     runs = glm5[k]["runs_tok_per_s"]
+    want = f"| {fmt(max(runs))} tok/s | {fmt(min(runs))}–{fmt(max(runs))} tok/s, {len(runs)} runs |"
+    hits = [n for n, line in enumerate(g, 1) if line.startswith(label)]
+    if len(hits) != 1 or not g[hits[0] - 1].endswith(want):
+        bad(GLM5_DOC, hits[0] if hits else 0, f"{label[2:]} row must end with {want!r}")
+for k, label in OLD_ROWS.items():                    # the superseded session, same row format
+    runs = old[k]["runs_tok_per_s"]
     want = f"| {fmt(max(runs))} tok/s | {fmt(min(runs))}–{fmt(max(runs))} tok/s, {len(runs)} runs |"
     hits = [n for n, line in enumerate(g, 1) if line.startswith(label)]
     if len(hits) != 1 or not g[hits[0] - 1].endswith(want):
@@ -127,7 +136,7 @@ for k, label in CHECK_ROWS.items():                  # check runs: their own tab
     hits = [n for n, line in enumerate(g, 1) if line.startswith(label)]
     if len(hits) != 1 or not g[hits[0] - 1].endswith(want):
         bad(GLM5_DOC, hits[0] if hits else 0, f"{label[2:]} row must end with {want!r}")
-known = tuple(ROWS.values()) + tuple(CHECK_ROWS.values())
+known = tuple(ROWS.values()) + tuple(OLD_ROWS.values()) + tuple(CHECK_ROWS.values())
 for n, line in enumerate(g, 1):                     # results tables hold only the known rows
     if line.startswith("|") and CLAIM.search(line) and not line.startswith(known):
         bad(GLM5_DOC, n, "unknown results row")
@@ -143,7 +152,11 @@ for n, line in enumerate(g, 1):                     # tok/s figures appear only 
 gtext = " ".join(g)
 RATIO_SENTENCE = re.compile(r"([\d.]+)× llama\.cpp with plain decode, ([\d.]+)× with MTP")
 OTHER_X = ("2× Xeon", "~1.8× the CPU experts")       # not speedups: hardware count, expert-union size
-rest = RATIO_SENTENCE.sub("", gtext)
+OLD_RATIO = re.compile(r"\(2026-11-07\) gave ([\d.]+)× and ([\d.]+)×")
+c = OLD_RATIO.search(gtext)
+if not c or c.groups() != (old_ratio["tarfa_plain"], old_ratio["tarfa_mtp"]):
+    bad(GLM5_DOC, 0, f"earlier-session ratios must read {old_ratio['tarfa_plain']}× and {old_ratio['tarfa_mtp']}×")
+rest = OLD_RATIO.sub("", RATIO_SENTENCE.sub("", gtext))
 for x in OTHER_X: rest = rest.replace(x, "")
 if re.search(r"\d+(?:\.\d+)?\s?[×x](?=\W)", rest):
     bad(GLM5_DOC, 0, "speedup figures are allowed only in the best-against-best sentence")

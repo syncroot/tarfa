@@ -1,0 +1,119 @@
+{
+  "date": "2026-11-09",
+  "what": "llama.cpp tuning sweep on the story prompt, 128 greedy tokens; every run, including failed configs.",
+  "base_flags": "-ngl 99 -sm layer -np 1 -tb 16 -b 512 -ub 256 --flash-attn on --jinja, plus the per-config flags",
+  "configs": {
+    "prod": {
+      "desc": "production flags, page cache as left by earlier Tarfa runs",
+      "runs_tok_per_s": [
+        1.89,
+        3.79,
+        6.59,
+        7.17,
+        7.61
+      ]
+    },
+    "fit": {
+      "desc": "--fit on with -ngl 99 (invalid: tried a 120 GB GPU buffer)",
+      "runs_tok_per_s": [],
+      "error": "server exited during load"
+    },
+    "prod_c4k": {
+      "desc": "production flags with -c 4096",
+      "runs_tok_per_s": [
+        1.94,
+        6.36,
+        7.11,
+        7.36,
+        8.02
+      ]
+    },
+    "nommap": {
+      "desc": "--load-mode none (does not fit RAM: thrashed at a 172 GiB cap)",
+      "runs_tok_per_s": [
+        6.8,
+        1.5,
+        2.26,
+        1.27,
+        0.89
+      ]
+    },
+    "nommap_t8": {
+      "desc": "--load-mode none, -t 8",
+      "runs_tok_per_s": [
+        3.9,
+        4.63,
+        3.93,
+        5.24,
+        5.39
+      ]
+    },
+    "nommap_fit": {
+      "desc": "--fit on with --load-mode none (failed to load)",
+      "runs_tok_per_s": [],
+      "error": "server exited during load"
+    },
+    "prod_end": {
+      "desc": "production flags after the no-mmap runs (cache refilled by llama.cpp itself)",
+      "runs_tok_per_s": [
+        1.21,
+        8.17,
+        8.79,
+        8.55,
+        8.84
+      ]
+    },
+    "cold_prod_a": {
+      "desc": "production flags, cache evicted first",
+      "runs_tok_per_s": [
+        1.13,
+        8.98,
+        8.92,
+        8.96,
+        8.89
+      ]
+    },
+    "cold_tarfa_plain_a": {
+      "desc": "Tarfa plain, first start on an evicted cache, before the node-local populate fix",
+      "runs_tok_per_s": [
+        8.19
+      ]
+    },
+    "cold_tarfa_mtp_a": {
+      "desc": "Tarfa MTP, first start on an evicted cache, before the node-local populate fix",
+      "runs_tok_per_s": [
+        7.98
+      ]
+    },
+    "cold_fit": {
+      "desc": "--fit on (no -ngl/-ncmoe/-ts), -c 4096, cache evicted first",
+      "runs_tok_per_s": [
+        1.2,
+        7.47,
+        7.43,
+        7.4,
+        4.4
+      ]
+    },
+    "cold_prod_b": {
+      "desc": "production flags, cache evicted first",
+      "runs_tok_per_s": [
+        1.13,
+        8.91,
+        8.86,
+        8.93,
+        8.89
+      ]
+    },
+    "cold_tarfa_plain_b": {
+      "desc": "",
+      "runs_tok_per_s": [],
+      "error": "Tarfa out of GPU memory (another process held 1.7 GB on the 4060 Ti)"
+    },
+    "cold_tarfa_mtp_b": {
+      "desc": "",
+      "runs_tok_per_s": [],
+      "error": "Tarfa out of GPU memory (another process held 1.7 GB on the 4060 Ti)"
+    }
+  }
+}

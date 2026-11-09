@@ -1,82 +1,129 @@
 {
-  "date": "2026-11-07 (comparison session); 2026-11-09 (checks)",
+  "comparison": "2026-11-09",
   "model": "GLM-5.3-Flash-UD-Q4_K_XL (GGUF, 186 GiB)",
   "machine": "2x Xeon Gold 5122 (8 cores, 2 NUMA nodes), 183 GiB DDR4-2666, Quadro RTX 6000 24 GB (PCIe Gen3 x16) + RTX 4060 Ti 16 GB (PCIe Gen3 x8)",
   "prompt": "Write a short story about a lighthouse keeper who finds a message in a bottle.",
   "prompt_tokens": 17,
   "decode_tokens": 128,
   "sampling": "greedy",
-  "note": "Decode tok/s as each engine reports it. Both are rates per decode step after the prompt: llama-server's timings.predicted_per_second counts 127 timed steps for its 128 predicted tokens (the first is sampled at the end of prompt processing); Tarfa times 128 decode steps after the token sampled from the prompt (129 tokens of text). MTP counts 128 tokens over its verify steps. The comparison uses the 2026-11-07 session, in which both engines ran back to back on the same build and routing prior. The model file is larger than RAM, so llama.cpp's speed depends on what the page cache holds; its slowest runs are mostly the first after a load.",
+  "method": "2026-11-09 session, run in this order: llama.cpp (5 runs), Tarfa plain (2 starts), Tarfa MTP (2 starts), llama.cpp (5 runs). Before each engine started, every GGUF shard was dropped from the page cache (posix_fadvise DONTNEED), so each engine filled the cache itself. Within a llama.cpp load the first request runs while the expert pages are still being read (1.13 tok/s); Tarfa reads its CPU-side experts before decoding, and its second start reuses the pages its first start placed. Decode tok/s as each engine reports it, per decode step after the prompt (llama-server: 127 timed steps for 128 predicted tokens; Tarfa: 128 steps after the token sampled from the prompt; MTP: 128 tokens over its verify steps).",
   "llamacpp": {
     "flags": "-ngl 99 -ncmoe 40 -sm layer -ts 41,4 -c 16384 -np 1 -t 16 -tb 16 -b 512 -ub 256 --numa distribute --flash-attn on --fit off",
     "runs_tok_per_s": [
-      2.18,
-      4.2,
-      6.81,
-      7.11,
-      7.88,
-      3.77,
-      7.63,
-      7.82,
-      6.89,
-      7.67,
-      7.66,
-      7.63,
-      4.41,
-      6.23,
-      6.86,
-      2.68,
-      7.17,
-      7.4,
-      7.27
+      1.13,
+      8.89,
+      8.87,
+      8.95,
+      8.88,
+      1.13,
+      9.06,
+      8.92,
+      9.09,
+      8.9
     ],
-    "best_tok_per_s": 7.88,
-    "t8_runs_tok_per_s": [
-      2.17,
-      5.1,
-      6.61,
-      6.86,
-      6.86,
-      6.87,
-      6.85,
-      6.87
-    ],
-    "t8_best_tok_per_s": 6.87
+    "best_tok_per_s": 9.09,
+    "note": "Runs 1 and 6 are the first request after each load."
   },
   "tarfa_plain": {
     "launcher": "tarfa/engine/glm5/run_best.sh",
     "runs_tok_per_s": [
-      12.5,
-      11.87,
-      12.56
+      9.24,
+      12.94
     ],
-    "best_tok_per_s": 12.56
+    "note": "Run 1: first start on an evicted cache; run 2: second start.",
+    "best_tok_per_s": 12.94
   },
   "tarfa_mtp": {
     "launcher": "tarfa/engine/glm5/run_spec.sh",
     "runs_tok_per_s": [
-      13.03,
-      13.57,
-      13.13
+      12.8,
+      13.68
     ],
-    "best_tok_per_s": 13.57,
     "verify_steps": [
-      71,
-      71,
-      69
+      72,
+      71
     ],
     "drafts_accepted": [
-      58,
-      58,
-      59
-    ]
+      57,
+      57
+    ],
+    "note": "Run 1: first start on an evicted cache; run 2: second start.",
+    "best_tok_per_s": 13.68
+  },
+  "session_2026_11_07": {
+    "llamacpp": {
+      "flags": "-ngl 99 -ncmoe 40 -sm layer -ts 41,4 -c 16384 -np 1 -t 16 -tb 16 -b 512 -ub 256 --numa distribute --flash-attn on --fit off",
+      "runs_tok_per_s": [
+        2.18,
+        4.2,
+        6.81,
+        7.11,
+        7.88,
+        3.77,
+        7.63,
+        7.82,
+        6.89,
+        7.67,
+        7.66,
+        7.63,
+        4.41,
+        6.23,
+        6.86,
+        2.68,
+        7.17,
+        7.4,
+        7.27
+      ],
+      "best_tok_per_s": 7.88,
+      "t8_runs_tok_per_s": [
+        2.17,
+        5.1,
+        6.61,
+        6.86,
+        6.86,
+        6.87,
+        6.85,
+        6.87
+      ],
+      "t8_best_tok_per_s": 6.87
+    },
+    "tarfa_plain": {
+      "launcher": "tarfa/engine/glm5/run_best.sh",
+      "runs_tok_per_s": [
+        12.5,
+        11.87,
+        12.56
+      ],
+      "best_tok_per_s": 12.56
+    },
+    "tarfa_mtp": {
+      "launcher": "tarfa/engine/glm5/run_spec.sh",
+      "runs_tok_per_s": [
+        13.03,
+        13.57,
+        13.13
+      ],
+      "best_tok_per_s": 13.57,
+      "verify_steps": [
+        71,
+        71,
+        69
+      ],
+      "drafts_accepted": [
+        58,
+        58,
+        59
+      ]
+    },
+    "note": "First comparison, superseded. llama.cpp ran on a page cache that Tarfa had filled and split across the NUMA nodes for its own kernel, which slowed llama.cpp: loaded by itself (2026-11-09) it reaches 8.9-9.1 tok/s with the same flags."
   },
   "checks_2026_11_09": {
-    "note": "Check runs of the published launchers (run_best.sh, run_spec.sh), not part of the comparison. MTP run 1 used the 2026-11-07 routing prior; MTP run 2 and both plain runs used a new prior from run_calib.sh. Plain run 2 used the final CPU kernel (NUMA row split with remainder-safe bounds; the same split on two nodes).",
+    "note": "Check runs of the published launchers (run_best.sh, run_spec.sh), not part of the comparison. MTP run 1 used the 2026-11-07 routing prior; MTP run 2 and both plain runs used a new prior from run_calib.sh. Plain run 2 used the final CPU kernel (NUMA row split with remainder-safe bounds; the same split on two nodes). Plain run 3 was the first start on an evicted cache after the node-local populate fix, with 22 GPU expert slots on the 4060 Ti instead of 23 (another process held 1.7 GB there).",
     "tarfa_plain": {
       "runs_tok_per_s": [
         12.73,
-        12.38
+        12.38,
+        12.48
       ]
     },
     "tarfa_mtp": {

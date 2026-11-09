@@ -244,19 +244,58 @@ class RawExperts:
                             fd, off = where(a)
                             os.posix_fadvise(fd, off + (lo - p), hi - lo, os.POSIX_FADV_DONTNEED)
                         dropped += n
+        numa = os.environ.get("GLM5_NUMA", "0") == "1"
+        if numa:                                  # read row-part k of each expert on node k, so its page-cache
+            import cpu_moe                        # pages are allocated there: on a cold cache both nodes are
+            nodes = cpu_moe.numa_nodes()          # nearly full and move_pages cannot migrate them afterwards
+            nn = len(nodes)
+        else:
+            nodes, nn = [None], 1
+        work = [[] for _ in nodes]                # per node: page-aligned (fd, file offset, address, len)
         for L in sorted(self.cache):
             gpu = set(self.cache[L])
             for k in KINDS:
                 t = self.idx[f"blk.{L}.{k}"]
                 for e in range(t.data.shape[0]):
                     if e not in gpu:
-                        a = t.data[e]; p, n = a.ctypes.data, a.nbytes
-                        lo, hi = p // PG * PG, -(-(p + n) // PG) * PG
-                        libc.madvise(lo, hi - lo, POPULATE_READ); kept += n
+                        a = t.data[e]; p, rows, rb = a.ctypes.data, a.shape[0], a.shape[1]
+                        fd, off = where(a)
+                        for j in range(nn):
+                            s, f = p + rows * j // nn * rb, p + rows * (j + 1) // nn * rb
+                            lo, hi = s // PG * PG, -(-f // PG) * PG
+                            work[j].append((fd, off + (lo - p), lo, hi - lo))
+                        kept += a.nbytes
+        names = {fd: os.readlink(f"/proc/self/fd/{fd}") for fd, _ in files.values()}
+        def read(ranges):
+            # read() on a private fd with readahead off allocates exactly these pages, on this thread's
+            # node; MADV_POPULATE_READ then only maps them (a fault would read ahead into the next part)
+            own = {}
+            buf = bytearray(8 << 20)
+            for fd, off, lo, n in ranges:
+                if fd not in own:
+                    own[fd] = os.open(names[fd], os.O_RDONLY)
+                    os.posix_fadvise(own[fd], 0, 0, os.POSIX_FADV_RANDOM)
+                for o in range(0, n, len(buf)):
+                    os.preadv(own[fd], [memoryview(buf)[:min(len(buf), n - o)]], off + o)
+                libc.madvise(lo, n, POPULATE_READ)
+            for f in own.values():
+                os.close(f)
+        futs, pools = [], []
+        for j, node in enumerate(nodes):
+            cpus = (sorted(int(c.rsplit("cpu", 1)[1]) for c in __import__("glob").glob(
+                f"/sys/devices/system/node/node{node}/cpu[0-9]*")) if node is not None else range(os.cpu_count()))
+            ex = ThreadPoolExecutor(4, initializer=lambda c=cpus: os.sched_setaffinity(0, c))
+            pools.append(ex)
+            for i in range(4):
+                futs.append(ex.submit(read, work[j][i::4]))
+        for f in futs:
+            f.result()
+        for ex in pools:
+            ex.shutdown()
         for fd, _ in files.values():
             os.close(fd)
-        if os.environ.get("GLM5_NUMA", "0") == "1":
-            self.numa_place()
+        if numa:
+            self.numa_place()                     # switches the kernel to the split variant; moves stragglers
         print(f"  populate: dropped {dropped/1e9:.1f} GB GPU-resident experts from page cache, "
               f"mapped {kept/1e9:.1f} GB CPU experts in {time.time()-t0:.0f}s", flush=True)
 

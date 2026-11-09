@@ -7,6 +7,9 @@ Machine: 2x Xeon Gold 5122 (2x4 cores, HT, 2 NUMA nodes, 6x DDR4-2666), 183 GiB 
 Quadro RTX 6000 24 GB (cuda:1, sm_75) + RTX 4060 Ti 16 GB (cuda:0, sm_89). Model GGUF
 GLM-5.3-Flash-UD-Q4_K_XL, 186 GiB (experts Q4_K/Q5_K/Q6_K, trunk Q8_0) - does not fit RAM.
 Baseline: llama.cpp production flags (-ncmoe 40, -ts 41,4, -t 16), story prompt @128: 2.2-7.9 tok/s over 19 runs, best 7.88 (-t 8: best 6.87 over 8 runs).
+Correction (2026-11-09): those llama.cpp runs used a page cache Tarfa had filled and NUMA-split for
+its own kernel. Loaded by itself (cache evicted first), llama.cpp gives 8.9-9.1 tok/s with the same
+flags, so the fair ratio is about 1.4x plain and 1.5x with MTP (README.md, bench_story.json).
 
 | step | tok/s | where |
 |---|---|---|
@@ -79,6 +82,13 @@ paths). Gate against the fp32 reference, not token-for-token llama.cpp.
   spec 13.0 -> 12.0 (2 slots) / 12.3 (1 slot, conservative), plain 12.5 -> 11.8. The DMA slows
   the memory-latency-bound CPU kernel (0.255 -> 0.287 ms/expert) and half of each NUMA-split
   expert crosses the socket link; the CPU phase got longer, not shorter.
+
+- Cold start (2026-11-09): with both NUMA nodes nearly full after a cold read, move_pages cannot
+  migrate the expert pages (no free page on the target node): 4.4M pages stayed put and the first
+  start after an evicted cache decoded at 8.2 tok/s. The populate step now reads each expert's
+  row-part k on node k with readahead off (pread, then MADV_POPULATE_READ only maps), so the pages
+  are allocated where the kernel uses them: 0.2-0.7M stragglers, first starts at 9.2-12.8 tok/s and
+  12.9-13.7 from the second start. Some first starts still take page faults during decode.
 
 ## Open levers
 MTP draft in fewer syncs; more RAM (whole model cached would make adaptive swapping pay); more

@@ -64,8 +64,8 @@ contribution.
 
 A separate engine in [tarfa/engine/glm5](tarfa/engine/glm5/README.md) runs GLM-5.3-Flash's
 186 GiB `UD-Q4_K_XL` GGUF on a machine with 183 GiB of RAM (2× Xeon Gold 5122, Quadro RTX 6000 +
-RTX 4060 Ti): best 12.56 tok/s plain and 13.57 tok/s with MTP speculative decoding, against
-llama.cpp's best of 7.88 tok/s on the same machine and file
+RTX 4060 Ti): best 12.94 tok/s plain and 13.68 tok/s with MTP speculative decoding, against
+llama.cpp's best of 9.09 tok/s on the same machine and file
 ([receipt](validation/glm5/bench_story.json)). It computes the quantized GGUF, so it is
 **outside the exact-BF16 contract above**; I had no BF16 copy of that model.
 

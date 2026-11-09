@@ -11,27 +11,42 @@ tuned for one machine.
 
 ## Result
 
-Story prompt (17 tokens), 128 greedy tokens, same machine and GGUF, one session (2026-11-07)
-with both engines run back to back. Every run is in the receipt
+Story prompt (17 tokens), 128 greedy tokens, same machine and GGUF, one session (2026-11-09).
+Before each engine started, the model file was dropped from the page cache, so each engine
+loaded it its own way. Every run is in the receipt
 [`validation/glm5/bench_story.json`](../../../validation/glm5/bench_story.json).
 
 | engine | best | all runs |
 |---|---|---|
-| llama.cpp, production flags (`-ncmoe 40 -ts 41,4 -t 16`) | 7.88 tok/s | 2.18–7.88 tok/s, 19 runs |
-| Tarfa, plain decode (`run_best.sh`) | 12.56 tok/s | 11.87–12.56 tok/s, 3 runs |
-| Tarfa, MTP speculative decode (`run_spec.sh`) | 13.57 tok/s | 13.03–13.57 tok/s, 3 runs |
+| llama.cpp, production flags (`-ncmoe 40 -ts 41,4 -t 16`) | 9.09 tok/s | 1.13–9.09 tok/s, 10 runs |
+| Tarfa, plain decode (`run_best.sh`) | 12.94 tok/s | 9.24–12.94 tok/s, 2 runs |
+| Tarfa, MTP speculative decode (`run_spec.sh`) | 13.68 tok/s | 12.80–13.68 tok/s, 2 runs |
 
-Best against best: 1.6× llama.cpp with plain decode, 1.7× with MTP. Both engines report a rate
-per decode step after the prompt (the receipt's note has the exact counting). The model is
-larger than RAM, so llama.cpp's speed depends on what the page cache holds; its slowest runs
-are mostly the first after a load.
+Best against best: 1.4× llama.cpp with plain decode, 1.5× with MTP. The slow ends of the ranges
+are first starts: llama.cpp's first request after a load runs while it is still reading expert
+pages, and Tarfa's first start after the cache is emptied can still take page faults during
+decode; its second start reuses the pages the first one placed. Both engines report a rate per
+decode step after the prompt (the receipt's method note has the exact counting).
 
-Later check runs of the published launchers (2026-11-09, also in the receipt; not part of the
-comparison):
+I also tried to tune llama.cpp: automatic GPU placement (`--fit on`), a smaller context, fewer
+threads and loading without mmap (which does not fit this machine's RAM). None beat the
+production flags; every run is in
+[`validation/glm5/llamacpp_sweep.json`](../../../validation/glm5/llamacpp_sweep.json).
+
+An earlier session (2026-11-07) gave 1.6× and 1.7×, but it was unfair to llama.cpp: it ran on a
+page cache Tarfa had filled and split across the NUMA nodes for its own kernel.
+
+| earlier session | best | all runs |
+|---|---|---|
+| llama.cpp, production flags, 2026-11-07 | 7.88 tok/s | 2.18–7.88 tok/s, 19 runs |
+| Tarfa, plain decode, 2026-11-07 | 12.56 tok/s | 11.87–12.56 tok/s, 3 runs |
+| Tarfa, MTP speculative decode, 2026-11-07 | 13.57 tok/s | 13.03–13.57 tok/s, 3 runs |
+
+Check runs of the published launchers (2026-11-09, outside both sessions):
 
 | check | runs |
 |---|---|
-| Tarfa, plain decode, check | 12.38–12.73 tok/s, 2 runs |
+| Tarfa, plain decode, check | 12.38–12.73 tok/s, 3 runs |
 | Tarfa, MTP speculative decode, check | 12.36–12.38 tok/s, 2 runs |
 
 Machine: 2× Xeon Gold 5122 (8 cores, 2 NUMA nodes), 183 GiB DDR4-2666, Quadro RTX 6000 24 GB
