@@ -1,0 +1,35 @@
+{
+  "prompt": "The capital of France is",
+  "prompt_tokens": 5,
+  "what": "Next-token distribution after the prompt (top 5 token ids). llama.cpp: the oracle dump of the GLM build at llama.cpp commit bed0a85 (CPU only). Tarfa: glm5_gdecode.py, final engine build of 2026-11-07 (Q8_0 trunk), greedy.",
+  "llamacpp_top5": [
+    12089,
+    3881,
+    264,
+    825,
+    11240
+  ],
+  "llamacpp_top5_probs": [
+    0.516,
+    0.069,
+    0.068,
+    0.064,
+    0.052
+  ],
+  "tarfa_top5": [
+    12089,
+    825,
+    264,
+    3881,
+    11240
+  ],
+  "tarfa_top5_probs": [
+    0.463,
+    0.088,
+    0.084,
+    0.057,
+    0.05
+  ],
+  "same_top5_set": true,
+  "argmax_match": true
+}

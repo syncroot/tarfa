@@ -2,7 +2,11 @@
 """Fail if any performance number in the public docs drifts from the committed receipts.
 
 Every tok/s, s/tok, joule, watt, utilization and phase-12 figure in the docs must be derivable
-from validation/*.json. Run: python tools/check_receipts.py  (CI runs it on every push/PR).
+from validation/*.json. The experimental GLM-5.3-Flash engine has its own, stricter checks below:
+in tarfa/engine/glm5/README.md and README.md's GLM section every tok/s figure, run count, range,
+speedup ratio and the draft acceptance is tied to its engine's runs in validation/glm5/bench_story.json,
+and the results tables may hold only the known rows. Other numbers there (hardware, timings, cosines)
+and the dated lab notes next to that engine (PERFORMANCE.md, KERNELS.md, VERDICT.md) are not checked. Run: python tools/check_receipts.py  (CI runs it on every push/PR).
 """
 import json, pathlib, re, sys
 
@@ -14,6 +18,7 @@ exact_jul = json.loads((V / "history/2026-07-20/bench_exact_bf16.json").read_tex
 fast = json.loads((V / "bench_fast_int4.json").read_text())
 power = json.loads((V / "power_metrics.json").read_text())
 p12 = json.loads((V / "phase12/completion_results.json").read_text())
+glm5 = json.loads((V / "glm5/bench_story.json").read_text())
 
 # Documented spread of fast-mode runs (BENCHMARKS.md section 1). Not a receipt; declared here so a
 # change to it is a reviewed diff, never a silent edit.
@@ -47,8 +52,21 @@ BANNED = ["2–3 tok/s", "2-3 tok/s", "~0.34", "2.63 s/tok", "(−11%)", "Privat
 errors = []
 def bad(f, n, msg): errors.append(f"{f}:{n}: {msg}")
 
+GLM5_DOC = "tarfa/engine/glm5/README.md"
+def glm5_section(f, lines):
+    """Line numbers of README.md's GLM-5.3-Flash section; the GLM checks below cover them."""
+    if f != "README.md": return set()
+    out, inside = set(), False
+    for n, line in enumerate(lines, 1):
+        if line.startswith("## "): inside = line.startswith("## Experimental: GLM-5.3-Flash")
+        if inside: out.add(n)
+    return out
+
 for f in DOCS:
-    for n, line in enumerate((REPO / f).read_text().splitlines(), 1):
+    lines = (REPO / f).read_text().splitlines()
+    skip = glm5_section(f, lines)
+    for n, line in enumerate(lines, 1):
+        if n in skip: continue
         for s in BANNED:
             if s in line: bad(f, n, f"banned stale claim {s!r}")
         for m in CLAIM.finditer(line):
@@ -72,7 +90,82 @@ def must(f, needle):
 for f in ("README.md", "BENCHMARKS.md"):
     must(f, f"{r(exact['tok_per_s'], 2)} tok/s"); must(f, f"{r(fast['tok_per_s'], 2)} tok/s")
 
+# ---- GLM-5.3-Flash engine (experimental) ----
+GJ = "validation/glm5/bench_story.json"
+ROWS = {"llamacpp": "| llama.cpp, production flags", "tarfa_plain": "| Tarfa, plain decode (",
+        "tarfa_mtp": "| Tarfa, MTP speculative decode ("}
+best = {}
+for k in ROWS:
+    runs = glm5[k]["runs_tok_per_s"]
+    best[k] = max(runs)
+    if glm5[k]["best_tok_per_s"] != best[k]: bad(GJ, 0, f"{k}: best_tok_per_s is not the max of its runs")
+chk = glm5["checks_2026_11_09"]
+CHECK_ROWS = {"tarfa_plain": "| Tarfa, plain decode, check", "tarfa_mtp": "| Tarfa, MTP speculative decode, check"}
+mtp_sets = [glm5["tarfa_mtp"], chk["tarfa_mtp"]]
+for m in mtp_sets:
+    if not (len(m["runs_tok_per_s"]) == len(m["verify_steps"]) == len(m["drafts_accepted"])):
+        bad(GJ, 0, "tarfa_mtp: runs, verify_steps and drafts_accepted differ in length")
+fmt = lambda v: f"{v:.2f}"
+runs_2dp = ({fmt(v) for k in ROWS for v in glm5[k]["runs_tok_per_s"]}
+            | {fmt(v) for k in CHECK_ROWS for v in chk[k]["runs_tok_per_s"]}
+            | {fmt(v) for v in glm5["llamacpp"]["t8_runs_tok_per_s"]})
+ratio = {k: f"{best[k] / best['llamacpp']:.1f}" for k in ("tarfa_plain", "tarfa_mtp")}
+accept = round(100 * sum(sum(m["drafts_accepted"]) for m in mtp_sets) / sum(sum(m["verify_steps"]) for m in mtp_sets))
+
+g = (REPO / GLM5_DOC).read_text().splitlines()
+for k, label in ROWS.items():                        # each table row carries its own engine's figures
+    runs = glm5[k]["runs_tok_per_s"]
+    want = f"| {fmt(max(runs))} tok/s | {fmt(min(runs))}–{fmt(max(runs))} tok/s, {len(runs)} runs |"
+    hits = [n for n, line in enumerate(g, 1) if line.startswith(label)]
+    if len(hits) != 1 or not g[hits[0] - 1].endswith(want):
+        bad(GLM5_DOC, hits[0] if hits else 0, f"{label[2:]} row must end with {want!r}")
+def span(runs):
+    rng = fmt(runs[0]) if len(runs) == 1 else f"{fmt(min(runs))}–{fmt(max(runs))}"
+    return f"{rng} tok/s, {len(runs)} run{'s' if len(runs) > 1 else ''}"
+for k, label in CHECK_ROWS.items():                  # check runs: their own table, their own runs
+    want = f"| {span(chk[k]['runs_tok_per_s'])} |"
+    hits = [n for n, line in enumerate(g, 1) if line.startswith(label)]
+    if len(hits) != 1 or not g[hits[0] - 1].endswith(want):
+        bad(GLM5_DOC, hits[0] if hits else 0, f"{label[2:]} row must end with {want!r}")
+known = tuple(ROWS.values()) + tuple(CHECK_ROWS.values())
+for n, line in enumerate(g, 1):                     # results tables hold only the known rows
+    if line.startswith("|") and CLAIM.search(line) and not line.startswith(known):
+        bad(GLM5_DOC, n, "unknown results row")
+for n, line in enumerate(g, 1):                     # tok/s figures appear only in the table rows
+    if not line.startswith("|") and CLAIM.search(line):
+        bad(GLM5_DOC, n, "tok/s figure outside the results table")
+    for c in CLAIM.finditer(line):
+        if UNIT[c.group(3)] != "tok/s": bad(GLM5_DOC, n, f"unexpected unit {c.group(3)!r}"); continue
+        for v in filter(None, c.group(1, 2)):
+            if v not in runs_2dp: bad(GLM5_DOC, n, f"{v} tok/s is not a run in {GJ} (two decimals)")
+    if not line.startswith("|") and re.search(r"\d+ runs?\b", line):
+        bad(GLM5_DOC, n, "run counts belong in the results tables")
+gtext = " ".join(g)
+RATIO_SENTENCE = re.compile(r"([\d.]+)× llama\.cpp with plain decode, ([\d.]+)× with MTP")
+OTHER_X = ("2× Xeon", "~1.8× the CPU experts")       # not speedups: hardware count, expert-union size
+rest = RATIO_SENTENCE.sub("", gtext)
+for x in OTHER_X: rest = rest.replace(x, "")
+if re.search(r"\d+(?:\.\d+)?\s?[×x](?=\W)", rest):
+    bad(GLM5_DOC, 0, "speedup figures are allowed only in the best-against-best sentence")
+acc = re.findall(r"(\d+)%\s+of drafts", gtext)
+if not acc or any(int(x) != accept for x in acc):
+    bad(GLM5_DOC, 0, f"draft acceptance {acc} != receipt {accept}%")
+c = RATIO_SENTENCE.search(gtext)
+if not c or c.groups() != (ratio["tarfa_plain"], ratio["tarfa_mtp"]):
+    bad(GLM5_DOC, 0, f"ratios must read {ratio['tarfa_plain']}× plain, {ratio['tarfa_mtp']}× with MTP")
+
+lines = (REPO / "README.md").read_text().splitlines()
+sec = " ".join(lines[n - 1] for n in sorted(glm5_section("README.md", lines)))
+c = re.search(r"best ([\d.]+) tok/s plain and ([\d.]+) tok/s with MTP.*?best of ([\d.]+) tok/s", sec)
+want = (fmt(best["tarfa_plain"]), fmt(best["tarfa_mtp"]), fmt(best["llamacpp"]))
+if not c or c.groups() != want:
+    bad("README.md", 0, f"GLM section must read best {want[0]} tok/s plain and {want[1]} tok/s with MTP, "
+                        f"against llama.cpp's best of {want[2]} tok/s")
+if len(CLAIM.findall(sec)) != 3: bad("README.md", 0, "GLM section has speed figures the check does not cover")
+if re.search(r"\d+ runs?\b", sec): bad("README.md", 0, "GLM section: run counts belong in the engine README")
+if re.findall(r"\d+(?:\.\d+)?×(?! Xeon)", sec): bad("README.md", 0, "GLM section: speedup figures belong in the engine README")
+
 if errors:
     print("Docs drifted from validation/ receipts:\n  " + "\n  ".join(errors)); sys.exit(1)
-print(f"OK: {len(DOCS)} docs consistent with receipts "
+print(f"OK: {len(DOCS) + 1} docs consistent with receipts "
       f"(exact {exact['tok_per_s']}, fast {fast['tok_per_s']} tok/s; p12 {p12_pct}%)")

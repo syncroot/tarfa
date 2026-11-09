@@ -1,0 +1,101 @@
+diff --git a/examples/eval-callback/eval-callback.cpp b/examples/eval-callback/eval-callback.cpp
+index 703ce13..68099d6 100644
+--- a/examples/eval-callback/eval-callback.cpp
++++ b/examples/eval-callback/eval-callback.cpp
+@@ -1,13 +1,53 @@
++// Patched for GLM5-Next layer probe: dumps full tensors (raw bytes + .meta) for the
++// comma-separated ggml names in env GLM5_DUMP, into env GLM5_DUMP_DIR.
++// Run with -ngl 0 so activations live in host memory. Original behaviour is kept
++// when GLM5_DUMP is unset (falls back to common_debug_cb_eval).
+ #include "arg.h"
+ #include "common.h"
+ #include "debug.h"
+ #include "log.h"
+ #include "llama.h"
++#include "ggml.h"
++#include "ggml-backend.h"
+ 
+ #include <clocale>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <set>
+ #include <string>
+ #include <vector>
+ 
++static std::set<std::string> g_dump_names;
++static std::string           g_dump_dir = ".";
++
++static bool dump_cb(struct ggml_tensor * t, bool ask, void * user_data) {
++    (void) user_data;
++    if (ask) {
++        return g_dump_names.count(t->name) > 0;
++    }
++    if (g_dump_names.count(t->name) == 0) {
++        return true;
++    }
++    const size_t nbytes = ggml_nbytes(t);
++    std::vector<char> raw(nbytes);
++    ggml_backend_tensor_get(t, raw.data(), 0, nbytes);
++
++    char path[1200];
++    snprintf(path, sizeof(path), "%s/%s.bin", g_dump_dir.c_str(), t->name);
++    if (FILE * f = fopen(path, "wb")) { fwrite(raw.data(), 1, nbytes, f); fclose(f); }
++
++    snprintf(path, sizeof(path), "%s/%s.meta", g_dump_dir.c_str(), t->name);
++    if (FILE * f = fopen(path, "w")) {
++        fprintf(f, "type=%d ne=%lld,%lld,%lld,%lld nb=%zu,%zu,%zu,%zu\n",
++                (int) t->type,
++                (long long) t->ne[0], (long long) t->ne[1], (long long) t->ne[2], (long long) t->ne[3],
++                t->nb[0], t->nb[1], t->nb[2], t->nb[3]);
++        fclose(f);
++    }
++    return true;
++}
++
+ static bool run(llama_context * ctx, const common_params & params) {
+     const llama_model * model = llama_get_model(ctx);
+     const llama_vocab * vocab = llama_model_get_vocab(model);
+@@ -51,13 +91,29 @@ int main(int argc, char ** argv) {
+     llama_backend_init();
+     llama_numa_init(params.numa);
+ 
+-    // pass the callback to the backend scheduler
+-    // it will be executed for each node during the graph computation
+-    params.cb_eval = common_debug_cb_eval;
+-    params.cb_eval_user_data = &cb_data;
++    // GLM5 full-tensor dump mode
++    const char * dnames = getenv("GLM5_DUMP");
++    const char * ddir   = getenv("GLM5_DUMP_DIR");
++    if (ddir) { g_dump_dir = ddir; }
++    if (dnames && *dnames) {
++        std::string s(dnames);
++        size_t p = 0;
++        while (p < s.size()) {
++            size_t c = s.find(',', p);
++            if (c == std::string::npos) { c = s.size(); }
++            std::string name = s.substr(p, c - p);
++            if (!name.empty()) { g_dump_names.insert(name); }
++            p = c + 1;
++        }
++        params.cb_eval           = dump_cb;
++        params.cb_eval_user_data = nullptr;
++        LOG_INF("GLM5_DUMP: %zu names -> %s\n", g_dump_names.size(), g_dump_dir.c_str());
++    } else {
++        params.cb_eval           = common_debug_cb_eval;
++        params.cb_eval_user_data = &cb_data;
++    }
+     params.warmup = false;
+ 
+-    // init
+     auto llama_init = common_init_from_params(params);
+ 
+     auto * model = llama_init->model();
+@@ -68,7 +124,6 @@ int main(int argc, char ** argv) {
+         return 1;
+     }
+ 
+-    // print system information
+     {
+         LOG_INF("\n");
+         LOG_INF("%s\n", common_params_get_system_info(params).c_str());

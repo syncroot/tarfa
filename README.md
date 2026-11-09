@@ -60,6 +60,15 @@ re-checks every emitted byte). Runtime reads are plain copies of those verified 
 not re-hashed per token. That it works at all on a $400 GPU is the point; that it's *provably exact* is the
 contribution.
 
+## Experimental: GLM-5.3-Flash (320B) from a GGUF
+
+A separate engine in [tarfa/engine/glm5](tarfa/engine/glm5/README.md) runs GLM-5.3-Flash's
+186 GiB `UD-Q4_K_XL` GGUF on a machine with 183 GiB of RAM (2× Xeon Gold 5122, Quadro RTX 6000 +
+RTX 4060 Ti): best 12.56 tok/s plain and 13.57 tok/s with MTP speculative decoding, against
+llama.cpp's best of 7.88 tok/s on the same machine and file
+([receipt](validation/glm5/bench_story.json)). It computes the quantized GGUF, so it is
+**outside the exact-BF16 contract above**; I had no BF16 copy of that model.
+
 ## Architecture (short version)
 
 ```
@@ -91,7 +100,8 @@ Requirements: NVIDIA GPU ≥ 12 GB, NVMe with the checkpoint (~234 GB BF16), Pyt
 
 Public preview (v0.1.0). Exact mode is the authoritative path (validation suite in `validation/`);
 the fast fused-int4 mode is functional and labeled. Currently validated on Qwen3.5-122B-A10B;
-the design generalizes to other expert-parallel MoEs.
+the design generalizes to other expert-parallel MoEs. The GLM-5.3-Flash engine is an
+experiment, tuned and measured on one machine.
 
 ## License
 

@@ -13,3 +13,6 @@ venv/
 *.egg-info/
 build/
 dist/
+
+# compiled CPU expert kernels (tarfa/engine/glm5)
+*.so
