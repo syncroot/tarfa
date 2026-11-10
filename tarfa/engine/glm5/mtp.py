@@ -123,6 +123,11 @@ class MTP:
                 gd[n] = g
         self.kv.copy_(kv0)
         self.ev = torch.cuda.Event()
+        self.cpu_args = None
+        if getattr(self.eng, "cpu_layer", None) is not None:     # block 45 through the bound per-layer call too
+            import cpu_moe
+            cpu_moe.bind_layer(45, *self.ts)
+            self.cpu_args = {n: tuple(b[k].data_ptr() for k in ("h_sel", "h_w", "h_fn", "h_y")) for n, b in self.buf.items()}
 
     def draft_g(self, h, emb, pos):
         """Graphed draft: h, emb [n, Ne] (n = 1 or 2), consecutive positions from `pos` -> draft token."""
@@ -133,14 +138,18 @@ class MTP:
         self.gA[n].replay()
         self.ev.record(); self.ev.synchronize()
         t1 = pc()
-        uni = {}
-        for t in range(n):
-            for e, we in zip(b["h_sel"][t].tolist(), b["h_w"][t].tolist()):
-                uni.setdefault(e, np.zeros(n, np.float32))[t] = we
-        es = list(uni); g, u, d = self.ts
-        moe_cpu_numa_t([g.data[e] for e in es], [u.data[e] for e in es], [d.data[e] for e in es],
-                       g.tensor_type, u.tensor_type, d.tensor_type, b["h_fn"].numpy(),
-                       np.stack([uni[e] for e in es]), out=b["h_y"].numpy())
+        if self.cpu_args is not None:
+            import cpu_moe
+            cpu_moe.moe_cpu_layer_t(45, n, (1 << 8 * n) - 1, *self.cpu_args[n])
+        else:
+            uni = {}
+            for t in range(n):
+                for e, we in zip(b["h_sel"][t].tolist(), b["h_w"][t].tolist()):
+                    uni.setdefault(e, np.zeros(n, np.float32))[t] = we
+            es = list(uni); g, u, d = self.ts
+            moe_cpu_numa_t([g.data[e] for e in es], [u.data[e] for e in es], [d.data[e] for e in es],
+                           g.tensor_type, u.tensor_type, d.tensor_type, b["h_fn"].numpy(),
+                           np.stack([uni[e] for e in es]), out=b["h_y"].numpy())
         t2 = pc()
         b["y"].copy_(b["h_y"], non_blocking=True)
         self.gB[n].replay()

@@ -162,6 +162,7 @@ if _USE_GGML:
     _lib.cpumoe_bind_layer.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p] + [ctypes.c_int] * 5 + [ctypes.c_long] * 3
     _lib.moe_cpu_layer.argtypes = [ctypes.c_int, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
                                    ctypes.c_float, ctypes.c_void_p]
+    _lib.moe_cpu_layer_t.argtypes = [ctypes.c_int, ctypes.c_int] + _lib.moe_cpu_layer.argtypes[1:]
 
 
 def bind_layer(L, tg, tu, td):
@@ -176,3 +177,10 @@ def moe_cpu_layer(L, mask, sel_addr, w_addr, x_addr, y_addr, lim=10.0):
     """Routed slots j with bit j of mask set: experts sel[j] (int64) with weights w[j], x fp32 [Ne]
     -> y fp32 [Ne]. Arguments are addresses of buffers that outlive the call. Needs numa_setup()."""
     return _lib.moe_cpu_layer(L, mask, sel_addr, w_addr, x_addr, lim, y_addr)
+
+
+def moe_cpu_layer_t(L, T, mask, sel_addr, w_addr, x_addr, y_addr, lim=10.0):
+    """T tokens over the union of their experts (moe_cpu_numa_t on a bound layer): bit 8*t + j of
+    mask = compute token t's routed slot j. sel int64 [T, 8], w fp32 [T, 8], x, y fp32 [T, Ne],
+    all passed as addresses. Returns the number of distinct experts computed."""
+    return _lib.moe_cpu_layer_t(L, T, mask, sel_addr, w_addr, x_addr, lim, y_addr)

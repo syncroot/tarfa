@@ -26,6 +26,7 @@ flags, so the fair ratio is about 1.4x plain and 1.5x with MTP (README.md, bench
 | own AVX-512BW Q4_K/Q5_K dots + in-row prefetch (CPU 0.28 -> 0.22 ms/expert) | 12.5 @128 (story; was 10.95) | cpu_moe_ggml.c |
 | MTP speculative decode (NextN draft, 2-token verify) | **13.0 @128** (story) | glm5_spec.py, run_spec.sh |
 | plain decode: CPU experts called once per layer on bound tensors (2026-11-10) | 13.2-13.6 @128 (story; 12.5-12.9 before, same day) | cpu_moe.moe_cpu_layer |
+| MTP speculative decode: the same per-layer call for the 2-token union (2026-11-10) | 14.3-14.9 @128 (story; 13.2-13.9 before, same session) | cpu_moe.moe_cpu_layer_t |
 
 Per token at 11.1 tok/s (GLM5_TL=1): CPU experts ~57 ms (~185 misses x 0.29 ms), trunk graphs
 ~21 ms, host glue ~9 ms; GPU hits (~16 ms) overlap the CPU work.
@@ -42,9 +43,26 @@ Replay of a recorded decode outside the engine: 41.2-41.4 -> 38.7-39.1 ms/token,
 58 -> 5 us. In-engine, warm, story prompt @128, interleaved runs: published checkout (9887cdf)
 12.71 / 12.72 / 12.75 tok/s against 13.40 / 13.50 / 13.60; with the old call selected in the new
 code (GLM5_CPU_LAYER=0) 12.50-12.87 against 13.17-13.60 over four rounds. About +6%. llama.cpp
-was not re-measured that day. The speculative path (moe_cpu_numa_t) still uses the old wrapper.
+was not re-measured that day.
 A per-call dynamic thread schedule in C was tried in the same replay and was slower (40.1-40.6
 ms/token) than the static NUMA split; it was removed.
+
+The speculative path got the same treatment the same day: `moe_cpu_layer_t` takes one mask with
+8 bits per token, builds the union of both tokens' misses in C in the order the Python wrapper
+used, and calls the same `moe_cpu_numa_t`; the draft head's block 45 goes through it too.
+Bit-identical to the old wrapper (check_cpu_layer.py: 80 calls with 1 and 2 tokens, shared
+experts and partial masks; 40 calls for the one-token entry). run_spec.sh, warm, story prompt
+@128, four interleaved rounds after one discarded warm-up:
+
+| | tok/s | ms per verify step | tokens/step |
+|---|---|---|---|
+| published checkout (9887cdf) | 13.92 / 13.23 / 13.61 / 13.81 | 131.3 / 138.2 / 130.6 / 130.6 | 1.83 / 1.83 / 1.78 / 1.80 |
+| moe_cpu_layer_t | 14.34 / 14.44 / 14.55 / 14.88 | 122.3 / 124.8 / 123.9 / 122.9 | 1.75 / 1.80 / 1.80 / 1.83 |
+
+Means 13.64 -> 14.55 tok/s (+7%), 132.7 -> 123.5 ms per step with the same ~330 union experts per
+step: the CPU phase went from 85-88 to 78-80 ms and host pre from 4.1 to 3.5 ms. Draft acceptance
+varies run to run (77-84%), so the per-step time is the like-for-like figure. GLM5_CPU_LAYER=0
+selects the old wrapper; the PCIe streaming mode (GLM5_STREAM=1) keeps it.
 
 ## MTP speculative decoding (glm5_spec.py, mtp.py)
 - Draft: block 45 NextN, x = eh_proj([enorm(emb(t+1)); hnorm(h_t)]) with h_t the trunk's
@@ -117,5 +135,4 @@ paths). Gate against the fp32 reference, not token-for-token llama.cpp.
   12.9-13.7 from the second start. Some first starts still take page faults during decode.
 
 ## Open levers
-MTP draft in fewer syncs; the per-layer CPU call for the speculative path; more fusion of the
-trunk glue. More RAM alone would not make adaptive swapping pay (see the 2026-11-10 test above).
+MTP draft in fewer syncs; more fusion of the trunk glue. More RAM alone would not make adaptive swapping pay (see the 2026-11-10 test above).

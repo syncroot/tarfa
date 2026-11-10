@@ -214,6 +214,11 @@ class SpecEngine(Engine):
         H2, d0 = self.hits2, self.dev0
         hx, hw, hsel, hy = self.h_x2.numpy(), self.h_w2.numpy(), self.h_sel2.numpy(), self.h_y2.numpy()
         raw = self.raw
+        # one C call per layer on the tensors freeze_hits bound (cpu_moe.moe_cpu_layer_t); GLM5_CPU_LAYER=0: old wrapper
+        layer_t = self.cpu_layer is not None and self.streamer is None
+        if layer_t:
+            import cpu_moe
+            a2 = (self.h_sel2.data_ptr(), self.h_w2.data_ptr(), self.h_x2.data_ptr(), self.h_y2.data_ptr())
         tl, pc = self.stats, time.perf_counter
         ta = pc()
         self.graphs2[3].replay()
@@ -233,6 +238,29 @@ class SpecEngine(Engine):
             if self.trace2 is not None:
                 self.trace2.append(hsel.copy())
             res = self.resident[L]
+            if layer_t:
+                mask = 0
+                for t in range(T):
+                    for j, e in enumerate(hsel[t].tolist()):
+                        if e in res:
+                            raw.hits += 1
+                        else:
+                            raw.misses += 1
+                            mask |= 1 << (8 * t + j)
+                t2 = pc(); tl["ms host pre"] += 1000 * (t2 - t1)
+                if mask:
+                    self.stats["cpu experts"] += cpu_moe.moe_cpu_layer_t(L, T, mask, *a2)
+                    raw.t_cpu = getattr(raw, "t_cpu", 0.0) + pc() - t2
+                    self.ycpu2.copy_(self.h_y2, non_blocking=True)
+                else:
+                    self.ycpu2.zero_()
+                if d0:
+                    cur.wait_event(self.ev0)
+                    self.y0c2.copy_(H2[d0]["y"], non_blocking=True)
+                t3 = pc(); tl["ms cpu experts"] += 1000 * (t3 - t2)
+                self.graphs2[L + 1].replay()
+                ta = pc(); tl["ms post"] += 1000 * (ta - t3)
+                continue
             uni = {}
             for t in range(T):
                 for j, e in enumerate(hsel[t].tolist()):

@@ -392,6 +392,37 @@ void moe_cpu_numa_t(int E, int T, const uint8_t **G, const uint8_t **U, const ui
     free(xq); free(hq);
 }
 
+// moe_cpu_numa_t on a bound layer (cpumoe_bind_layer): bit 8*t + j of mask set = compute token
+// t's routed slot j (sel[t*8 + j], w8[t*8 + j]). The union is built in the order the Python
+// wrapper used (token 0's slots, then each later token's new experts), so sums come out the same.
+int moe_cpu_layer_t(int L, int T, unsigned mask, const int64_t *sel, const float *w8, const float *x, float lim, float *y) {
+    const bound_t *b = &g_bound[L];
+    static struct { const uint8_t *G[32], *U[32], *D[32]; int64_t id[32]; float w[32 * TMAX]; } __attribute__((aligned(64))) a;
+    if (T < 1 || T > TMAX) return -1;
+    int E = 0;
+    for (int t = 0; t < T; t++)
+        for (int j = 0; j < 8; j++) {
+            if (!(mask >> (8 * t + j) & 1)) continue;
+            int64_t e = sel[t * 8 + j];
+            int k = 0;
+            while (k < E && a.id[k] != e) k++;
+            if (k == E) {
+                a.id[E] = e;
+                a.G[E] = b->g + (size_t)e * b->nff * b->g_rb; a.U[E] = b->u + (size_t)e * b->nff * b->u_rb;
+                a.D[E] = b->d + (size_t)e * b->ne * b->d_rb;
+                for (int s = 0; s < T; s++) a.w[E * T + s] = 0.f;
+                E++;
+            }
+            a.w[k * T + t] = w8[t * 8 + j];
+        }
+    if (!E) return 0;
+    if (g_hcap < (size_t)E * T * b->nff) {
+        free(g_hbuf); g_hcap = (size_t)32 * TMAX * b->nff; g_hbuf = malloc(g_hcap * sizeof(float));
+    }
+    moe_cpu_numa_t(E, T, a.G, a.U, a.D, b->qg, b->qu, b->qd, b->nff, b->ne, b->g_rb, b->u_rb, b->d_rb, x, a.w, lim, g_hbuf, y);
+    return E;
+}
+
 // Move the (mapped) pages fully inside [addr, addr+len) to NUMA node `node`.
 // Returns pages that could not be moved (status < 0, or every page of a batch whose call failed).
 long cpumoe_place(const uint8_t *addr, size_t len, int node) {
