@@ -1,54 +1,109 @@
 {
-  "comparison": "2026-11-09",
+  "comparison": "2026-11-10",
   "model": "GLM-5.3-Flash-UD-Q4_K_XL (GGUF, 186 GiB)",
   "machine": "2x Xeon Gold 5122 (8 cores, 2 NUMA nodes), 183 GiB DDR4-2666, Quadro RTX 6000 24 GB (PCIe Gen3 x16) + RTX 4060 Ti 16 GB (PCIe Gen3 x8)",
   "prompt": "Write a short story about a lighthouse keeper who finds a message in a bottle.",
   "prompt_tokens": 17,
   "decode_tokens": 128,
   "sampling": "greedy",
-  "method": "2026-11-09 session, run in this order: llama.cpp (5 runs), Tarfa plain (2 starts), Tarfa MTP (2 starts), llama.cpp (5 runs). Before each engine started, every GGUF shard was dropped from the page cache (posix_fadvise DONTNEED), so each engine filled the cache itself. Within a llama.cpp load the first request runs while the expert pages are still being read (1.13 tok/s); Tarfa reads its CPU-side experts before decoding, and its second start reuses the pages its first start placed. Decode tok/s as each engine reports it, per decode step after the prompt (llama-server: 127 timed steps for 128 predicted tokens; Tarfa: 128 steps after the token sampled from the prompt; MTP: 128 tokens over its verify steps).",
+  "method": "2026-11-10 session, run in this order: llama.cpp (5 runs), Tarfa plain (4 starts), Tarfa MTP (4 starts), llama.cpp (5 runs). Before each llama.cpp load, before the first plain start and before the first MTP start, every GGUF shard was dropped from the page cache (posix_fadvise DONTNEED), so each engine filled the cache itself. Within a llama.cpp load the first request runs while the expert pages are still being read (1.11-1.12 tok/s); Tarfa reads its CPU-side experts before decoding, and its later starts reuse the pages its first start placed. Decode tok/s as each engine reports it, per decode step after the prompt (llama-server: 127 timed steps for 128 predicted tokens; Tarfa: 128 steps after the token sampled from the prompt; MTP: 128 tokens over its verify steps). Same llama.cpp build and flags as on 2026-11-09; Tarfa with the per-layer CPU expert call (cpu_moe.moe_cpu_layer, moe_cpu_layer_t).",
   "llamacpp": {
     "flags": "-ngl 99 -ncmoe 40 -sm layer -ts 41,4 -c 16384 -np 1 -t 16 -tb 16 -b 512 -ub 256 --numa distribute --flash-attn on --fit off",
     "runs_tok_per_s": [
-      1.13,
-      8.89,
+      1.12,
+      8.67,
+      8.85,
+      8.62,
       8.87,
+      1.11,
       8.95,
-      8.88,
-      1.13,
-      9.06,
+      8.82,
       8.92,
-      9.09,
-      8.9
+      8.98
     ],
-    "best_tok_per_s": 9.09,
+    "best_tok_per_s": 8.98,
     "note": "Runs 1 and 6 are the first request after each load."
   },
   "tarfa_plain": {
     "launcher": "tarfa/engine/glm5/run_best.sh",
     "runs_tok_per_s": [
-      9.24,
-      12.94
+      9.06,
+      13.32,
+      13.57,
+      13.71
     ],
-    "note": "Run 1: first start on an evicted cache; run 2: second start.",
-    "best_tok_per_s": 12.94
+    "note": "Run 1: first start on an evicted cache (44,364 major page faults during decode); runs 2-4: later starts on the cache run 1 filled.",
+    "best_tok_per_s": 13.71
   },
   "tarfa_mtp": {
     "launcher": "tarfa/engine/glm5/run_spec.sh",
     "runs_tok_per_s": [
-      12.8,
-      13.68
+      11.37,
+      14.13,
+      14.15,
+      13.92
     ],
     "verify_steps": [
+      71,
       72,
-      71
+      71,
+      72
     ],
     "drafts_accepted": [
+      58,
       57,
+      58,
       57
     ],
-    "note": "Run 1: first start on an evicted cache; run 2: second start.",
-    "best_tok_per_s": 13.68
+    "note": "Run 1: first start on an evicted cache; runs 2-4: later starts on the cache run 1 filled.",
+    "best_tok_per_s": 14.15
+  },
+  "session_2026_11_09": {
+    "method": "2026-11-09 session, run in this order: llama.cpp (5 runs), Tarfa plain (2 starts), Tarfa MTP (2 starts), llama.cpp (5 runs). Before each engine started, every GGUF shard was dropped from the page cache (posix_fadvise DONTNEED), so each engine filled the cache itself. Within a llama.cpp load the first request runs while the expert pages are still being read (1.13 tok/s); Tarfa reads its CPU-side experts before decoding, and its second start reuses the pages its first start placed. Decode tok/s as each engine reports it, per decode step after the prompt (llama-server: 127 timed steps for 128 predicted tokens; Tarfa: 128 steps after the token sampled from the prompt; MTP: 128 tokens over its verify steps).",
+    "llamacpp": {
+      "flags": "-ngl 99 -ncmoe 40 -sm layer -ts 41,4 -c 16384 -np 1 -t 16 -tb 16 -b 512 -ub 256 --numa distribute --flash-attn on --fit off",
+      "runs_tok_per_s": [
+        1.13,
+        8.89,
+        8.87,
+        8.95,
+        8.88,
+        1.13,
+        9.06,
+        8.92,
+        9.09,
+        8.9
+      ],
+      "best_tok_per_s": 9.09,
+      "note": "Runs 1 and 6 are the first request after each load."
+    },
+    "tarfa_plain": {
+      "launcher": "tarfa/engine/glm5/run_best.sh",
+      "runs_tok_per_s": [
+        9.24,
+        12.94
+      ],
+      "note": "Run 1: first start on an evicted cache; run 2: second start.",
+      "best_tok_per_s": 12.94
+    },
+    "tarfa_mtp": {
+      "launcher": "tarfa/engine/glm5/run_spec.sh",
+      "runs_tok_per_s": [
+        12.8,
+        13.68
+      ],
+      "verify_steps": [
+        72,
+        71
+      ],
+      "drafts_accepted": [
+        57,
+        57
+      ],
+      "note": "Run 1: first start on an evicted cache; run 2: second start.",
+      "best_tok_per_s": 13.68
+    },
+    "note": "Previous comparison, same protocol, with the engine as it was before the per-layer CPU expert call (cpu_moe.moe_cpu_layer, moe_cpu_layer_t)."
   },
   "session_2026_11_07": {
     "llamacpp": {

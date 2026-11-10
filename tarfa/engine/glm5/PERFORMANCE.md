@@ -10,6 +10,9 @@ Baseline: llama.cpp production flags (-ncmoe 40, -ts 41,4, -t 16), story prompt 
 Correction (2026-11-09): those llama.cpp runs used a page cache Tarfa had filled and NUMA-split for
 its own kernel. Loaded by itself (cache evicted first), llama.cpp gives 8.9-9.1 tok/s with the same
 flags, so the fair ratio is about 1.4x plain and 1.5x with MTP (README.md, bench_story.json).
+Update (2026-11-10): with the per-layer CPU expert call (below) a new session under the same protocol gave
+llama.cpp 8.62-8.98 tok/s, Tarfa plain 13.32-13.71 and MTP 13.92-14.15 on a filled cache (first starts 9.06
+and 11.37): 1.48-1.53x plain and 1.55-1.58x with MTP against llama.cpp's best run.
 
 | step | tok/s | where |
 |---|---|---|

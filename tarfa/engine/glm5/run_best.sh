@@ -1,6 +1,6 @@
 #!/bin/bash
-# Plain glm5-next decode, the configuration measured in README.md (12.56 tok/s best on the
-# story prompt @128 on the reference machine). Needs both GPUs free. Settings: glm5_env.sh.
+# Plain glm5-next decode, the configuration measured in README.md (story prompt @128 on the
+# reference machine). Needs both GPUs free. Settings: glm5_env.sh.
 # Usage: GLM5_GGUF=<dir with the GGUF shards> GLM5_PROMPT="..." ./run_best.sh [n_tokens]
 cd "$(dirname "$0")"
 : "${GLM5_PROMPT:?set GLM5_PROMPT}"

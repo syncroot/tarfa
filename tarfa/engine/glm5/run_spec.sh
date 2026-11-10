@@ -1,6 +1,6 @@
 #!/bin/bash
 # Speculative decode with the NextN (MTP) draft head (glm5_spec.py), the configuration measured in
-# README.md (13.57 tok/s best on the story prompt @128). Needs both GPUs free. Settings: glm5_env.sh.
+# README.md (story prompt @128). Needs both GPUs free. Settings: glm5_env.sh.
 # Usage: GLM5_GGUF=<dir with the GGUF shards> GLM5_PROMPT="..." ./run_spec.sh [n_tokens]
 cd "$(dirname "$0")"
 : "${GLM5_PROMPT:?set GLM5_PROMPT}"

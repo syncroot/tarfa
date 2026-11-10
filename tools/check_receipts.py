@@ -96,6 +96,8 @@ ROWS = {"llamacpp": "| llama.cpp, production flags (", "tarfa_plain": "| Tarfa, 
         "tarfa_mtp": "| Tarfa, MTP speculative decode ("}
 old = glm5["session_2026_11_07"]                     # superseded first comparison, its own table
 OLD_ROWS = {k: v.rstrip(" (") + ", 2026-11-07" for k, v in ROWS.items()}
+prev = glm5["session_2026_11_09"]                    # previous comparison (older engine), its own table
+PREV_ROWS = {k: v.rstrip(" (") + ", 2026-11-09" for k, v in ROWS.items()}
 best = {}
 for k in ROWS:
     runs = glm5[k]["runs_tok_per_s"]
@@ -103,15 +105,21 @@ for k in ROWS:
     if glm5[k]["best_tok_per_s"] != best[k]: bad(GJ, 0, f"{k}: best_tok_per_s is not the max of its runs")
 chk = glm5["checks_2026_11_09"]
 CHECK_ROWS = {"tarfa_plain": "| Tarfa, plain decode, check", "tarfa_mtp": "| Tarfa, MTP speculative decode, check"}
-mtp_sets = [glm5["tarfa_mtp"], chk["tarfa_mtp"], old["tarfa_mtp"]]
+mtp_sets = [glm5["tarfa_mtp"], chk["tarfa_mtp"], prev["tarfa_mtp"], old["tarfa_mtp"]]
 for m in mtp_sets:
     if not (len(m["runs_tok_per_s"]) == len(m["verify_steps"]) == len(m["drafts_accepted"])):
         bad(GJ, 0, "tarfa_mtp: runs, verify_steps and drafts_accepted differ in length")
 fmt = lambda v: f"{v:.2f}"
 runs_2dp = ({fmt(v) for k in ROWS for v in glm5[k]["runs_tok_per_s"]}
             | {fmt(v) for k in CHECK_ROWS for v in chk[k]["runs_tok_per_s"]}
+            | {fmt(v) for k in PREV_ROWS for v in prev[k]["runs_tok_per_s"]}
             | {fmt(v) for k in OLD_ROWS for v in old[k]["runs_tok_per_s"]})
-ratio = {k: f"{best[k] / best['llamacpp']:.1f}" for k in ("tarfa_plain", "tarfa_mtp")}
+# Tarfa's run 1 is its first start on an evicted cache; the ratios span the starts after it (slowest, best).
+def spread(k, base): return tuple(f"{f(glm5[k]['runs_tok_per_s'][1:]) / base:.2f}" for f in (min, max))
+ratio = spread("tarfa_plain", best["llamacpp"]) + spread("tarfa_mtp", best["llamacpp"])
+prev_best = max(prev["llamacpp"]["runs_tok_per_s"])  # the same starts against the previous session's llama.cpp best
+cross = spread("tarfa_plain", prev_best) + spread("tarfa_mtp", prev_best)
+prev_ratio = {k: f"{max(prev[k]['runs_tok_per_s']) / prev_best:.1f}" for k in ("tarfa_plain", "tarfa_mtp")}
 old_ratio = {k: f"{max(old[k]['runs_tok_per_s']) / max(old['llamacpp']['runs_tok_per_s']):.1f}" for k in ("tarfa_plain", "tarfa_mtp")}
 accept = round(100 * sum(sum(m["drafts_accepted"]) for m in mtp_sets) / sum(sum(m["verify_steps"]) for m in mtp_sets))
 
@@ -122,8 +130,9 @@ for k, label in ROWS.items():                        # each table row carries it
     hits = [n for n, line in enumerate(g, 1) if line.startswith(label)]
     if len(hits) != 1 or not g[hits[0] - 1].endswith(want):
         bad(GLM5_DOC, hits[0] if hits else 0, f"{label[2:]} row must end with {want!r}")
-for k, label in OLD_ROWS.items():                    # the superseded session, same row format
-    runs = old[k]["runs_tok_per_s"]
+EARLIER = ([(prev[k]["runs_tok_per_s"], label) for k, label in PREV_ROWS.items()]
+           + [(old[k]["runs_tok_per_s"], label) for k, label in OLD_ROWS.items()])
+for runs, label in EARLIER:                          # the earlier sessions, same row format
     want = f"| {fmt(max(runs))} tok/s | {fmt(min(runs))}–{fmt(max(runs))} tok/s, {len(runs)} runs |"
     hits = [n for n, line in enumerate(g, 1) if line.startswith(label)]
     if len(hits) != 1 or not g[hits[0] - 1].endswith(want):
@@ -136,7 +145,7 @@ for k, label in CHECK_ROWS.items():                  # check runs: their own tab
     hits = [n for n, line in enumerate(g, 1) if line.startswith(label)]
     if len(hits) != 1 or not g[hits[0] - 1].endswith(want):
         bad(GLM5_DOC, hits[0] if hits else 0, f"{label[2:]} row must end with {want!r}")
-known = tuple(ROWS.values()) + tuple(OLD_ROWS.values()) + tuple(CHECK_ROWS.values())
+known = tuple(ROWS.values()) + tuple(PREV_ROWS.values()) + tuple(OLD_ROWS.values()) + tuple(CHECK_ROWS.values())
 for n, line in enumerate(g, 1):                     # results tables hold only the known rows
     if line.startswith("|") and CLAIM.search(line) and not line.startswith(known):
         bad(GLM5_DOC, n, "unknown results row")
@@ -150,22 +159,31 @@ for n, line in enumerate(g, 1):                     # tok/s figures appear only 
     if not line.startswith("|") and re.search(r"\d+ runs?\b", line):
         bad(GLM5_DOC, n, "run counts belong in the results tables")
 gtext = " ".join(g)
-RATIO_SENTENCE = re.compile(r"([\d.]+)× llama\.cpp with plain decode, ([\d.]+)× with MTP")
-OTHER_X = ("2× Xeon", "~1.8× the CPU experts")       # not speedups: hardware count, expert-union size
+RATIO_SENTENCE = re.compile(r"([\d.]+)–([\d.]+)× llama\.cpp with plain decode, ([\d.]+)–([\d.]+)× with MTP")
+CROSS_SENTENCE = re.compile(r"against it, the 2026-11-10 Tarfa starts above are ([\d.]+)–([\d.]+)× and ([\d.]+)–([\d.]+)×")
+PREV_RATIO = re.compile(r"\(2026-11-09\) gave ([\d.]+)× and ([\d.]+)×")
+OTHER_X = ("2× Xeon", "~1.7× the CPU experts")       # not speedups: hardware count, expert-union size
 OLD_RATIO = re.compile(r"\(2026-11-07\) gave ([\d.]+)× and ([\d.]+)×")
 c = OLD_RATIO.search(gtext)
 if not c or c.groups() != (old_ratio["tarfa_plain"], old_ratio["tarfa_mtp"]):
     bad(GLM5_DOC, 0, f"earlier-session ratios must read {old_ratio['tarfa_plain']}× and {old_ratio['tarfa_mtp']}×")
-rest = OLD_RATIO.sub("", RATIO_SENTENCE.sub("", gtext))
+c = PREV_RATIO.search(gtext)
+if not c or c.groups() != (prev_ratio["tarfa_plain"], prev_ratio["tarfa_mtp"]):
+    bad(GLM5_DOC, 0, f"previous-session ratios must read {prev_ratio['tarfa_plain']}× and {prev_ratio['tarfa_mtp']}×")
+c = CROSS_SENTENCE.search(gtext)
+if not c or c.groups() != cross:
+    bad(GLM5_DOC, 0, "ratios against the previous llama.cpp best must read %s–%s× and %s–%s×" % cross)
+rest = gtext
+for pat in (RATIO_SENTENCE, CROSS_SENTENCE, PREV_RATIO, OLD_RATIO): rest = pat.sub("", rest)
 for x in OTHER_X: rest = rest.replace(x, "")
 if re.search(r"\d+(?:\.\d+)?\s?[×x](?=\W)", rest):
-    bad(GLM5_DOC, 0, "speedup figures are allowed only in the best-against-best sentence")
+    bad(GLM5_DOC, 0, "speedup figures are allowed only in the ratio sentences")
 acc = re.findall(r"(\d+)%\s+of drafts", gtext)
 if not acc or any(int(x) != accept for x in acc):
     bad(GLM5_DOC, 0, f"draft acceptance {acc} != receipt {accept}%")
 c = RATIO_SENTENCE.search(gtext)
-if not c or c.groups() != (ratio["tarfa_plain"], ratio["tarfa_mtp"]):
-    bad(GLM5_DOC, 0, f"ratios must read {ratio['tarfa_plain']}× plain, {ratio['tarfa_mtp']}× with MTP")
+if not c or c.groups() != ratio:
+    bad(GLM5_DOC, 0, "ratios must read %s–%s× plain, %s–%s× with MTP" % ratio)
 
 lines = (REPO / "README.md").read_text().splitlines()
 sec = " ".join(lines[n - 1] for n in sorted(glm5_section("README.md", lines)))

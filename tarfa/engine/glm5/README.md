@@ -11,38 +11,50 @@ tuned for one machine.
 
 ## Result
 
-Story prompt (17 tokens), 128 greedy tokens, same machine and GGUF, one session (2026-11-09).
+Story prompt (17 tokens), 128 greedy tokens, same machine and GGUF, one session (2026-11-10).
 Before each engine started, the model file was dropped from the page cache, so each engine
 loaded it its own way. Every run is in the receipt
 [`validation/glm5/bench_story.json`](../../../validation/glm5/bench_story.json).
 
 | engine | best | all runs |
 |---|---|---|
-| llama.cpp, production flags (`-ncmoe 40 -ts 41,4 -t 16`) | 9.09 tok/s | 1.13–9.09 tok/s, 10 runs |
-| Tarfa, plain decode (`run_best.sh`) | 12.94 tok/s | 9.24–12.94 tok/s, 2 runs |
-| Tarfa, MTP speculative decode (`run_spec.sh`) | 13.68 tok/s | 12.80–13.68 tok/s, 2 runs |
+| llama.cpp, production flags (`-ncmoe 40 -ts 41,4 -t 16`) | 8.98 tok/s | 1.11–8.98 tok/s, 10 runs |
+| Tarfa, plain decode (`run_best.sh`) | 13.71 tok/s | 9.06–13.71 tok/s, 4 runs |
+| Tarfa, MTP speculative decode (`run_spec.sh`) | 14.15 tok/s | 11.37–14.15 tok/s, 4 runs |
 
-Best against best: 1.4× llama.cpp with plain decode, 1.5× with MTP. The slow ends of the ranges
-are first starts: llama.cpp's first request after a load runs while it is still reading expert
-pages, and Tarfa's first start after the cache is emptied can still take page faults during
-decode; its second start reuses the pages the first one placed. Both engines report a rate per
-decode step after the prompt (the receipt's method note has the exact counting).
+Against llama.cpp's best run, Tarfa's starts on a filled page cache (every start after the
+first, slowest to best) are 1.48–1.53× llama.cpp with plain decode, 1.55–1.58× with MTP. The
+slow ends of the ranges are first starts: llama.cpp's first request after a load runs while it
+is still reading expert pages, and Tarfa's first start after the cache is emptied still takes
+page faults during decode; its later starts reuse the pages the first one placed. Both engines
+report a rate per decode step after the prompt (the receipt's method note has the exact counting).
+
+The previous session (2026-11-09) gave 1.4× and 1.5× best against best, with the engine as it
+was before the per-layer CPU expert call (see [PERFORMANCE.md](PERFORMANCE.md)). llama.cpp's
+best run was a little faster that day; against it, the 2026-11-10 Tarfa starts above are
+1.47–1.51× and 1.53–1.56×.
+
+| previous session | best | all runs |
+|---|---|---|
+| llama.cpp, production flags, 2026-11-09 | 9.09 tok/s | 1.13–9.09 tok/s, 10 runs |
+| Tarfa, plain decode, 2026-11-09 | 12.94 tok/s | 9.24–12.94 tok/s, 2 runs |
+| Tarfa, MTP speculative decode, 2026-11-09 | 13.68 tok/s | 12.80–13.68 tok/s, 2 runs |
 
 I also tried to tune llama.cpp: automatic GPU placement (`--fit on`), a smaller context, fewer
 threads and loading without mmap (which does not fit this machine's RAM). None beat the
 production flags; every run is in
 [`validation/glm5/llamacpp_sweep.json`](../../../validation/glm5/llamacpp_sweep.json).
 
-An earlier session (2026-11-07) gave 1.6× and 1.7×, but it was unfair to llama.cpp: it ran on a
+The first session (2026-11-07) gave 1.6× and 1.7×, but it was unfair to llama.cpp: it ran on a
 page cache Tarfa had filled and split across the NUMA nodes for its own kernel.
 
-| earlier session | best | all runs |
+| first session | best | all runs |
 |---|---|---|
 | llama.cpp, production flags, 2026-11-07 | 7.88 tok/s | 2.18–7.88 tok/s, 19 runs |
 | Tarfa, plain decode, 2026-11-07 | 12.56 tok/s | 11.87–12.56 tok/s, 3 runs |
 | Tarfa, MTP speculative decode, 2026-11-07 | 13.57 tok/s | 13.03–13.57 tok/s, 3 runs |
 
-Check runs of the published launchers (2026-11-09, outside both sessions):
+Check runs of the published launchers (2026-11-09, outside the sessions):
 
 | check | runs |
 |---|---|
@@ -62,14 +74,16 @@ notes and are not backed by files in this repo.
   4-stream hyper-connections with Sinkhorn mixing, Q8_0 weights kept quantized (`q8.py`).
 - **Experts split three ways**: a profiled hot set lives in VRAM on both cards (`experts_gpu.py`,
   `qmoe.py`, `glm5_calib.py`); the rest run on the CPU from the memory-mapped GGUF, split by
-  rows across NUMA nodes (`cpu_moe_ggml.c`). The CPU expert kernel takes about 60% of decode
-  time (6.0–6.4 s of 10.2–10.8 s in the 2026-11-07 plain runs).
+  rows across NUMA nodes (`cpu_moe_ggml.c`). The CPU expert kernel takes about 56% of decode
+  time (5.2–5.4 s of 9.3–9.6 s in the 2026-11-10 plain starts on a filled cache).
 - **CPU kernel**: llama.cpp's ggml k-quant dot products, plus my own AVX-512BW Q4_K/Q5_K dots
   with 2–4 KB in-row prefetch (0.28 → 0.22 ms per expert in my `bench_kern.py` runs, noted in
-  PERFORMANCE.md). Same integer math as ggml (`test_avx512.py`).
+  PERFORMANCE.md). Same integer math as ggml (`test_avx512.py`). Each layer's expert tensors are
+  bound once, so a decode step passes only the routed expert ids, their weights and a mask of
+  the ones the GPUs do not hold (`moe_cpu_layer`, `moe_cpu_layer_t`).
 - **MTP speculative decode** (`mtp.py`, `glm5_spec.py`): the GGUF's NextN head (block 45)
   drafts one token, a two-token pass verifies it, KDA state rolls back on a reject. About 81%
-  of drafts are accepted (all recorded runs), but two tokens touch ~1.8× the CPU experts, so the gain is small.
+  of drafts are accepted (all recorded runs), but two tokens touch ~1.7× the CPU experts, so the gain is small.
 
 The step-by-step history, with what helped and what didn't (adaptive expert swapping, PCIe
 streaming of CPU misses), is in [PERFORMANCE.md](PERFORMANCE.md). [KERNELS.md](KERNELS.md) and
