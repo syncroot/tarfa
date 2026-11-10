@@ -226,6 +226,19 @@ void moe_cpu(int E, const uint8_t **G, const uint8_t **U, const uint8_t **D,
 static int g_nodes = 1;
 void cpumoe_set_nodes(int n) { g_nodes = n > 0 ? n : 1; }
 
+// Optional per-call profile of moe_cpu_numa (cpumoe_prof(1) resets and enables). Sums in seconds:
+// [0] calls, [1] experts, [2] total, [3] wake (entry -> last thread running), [4] phase 1 wall,
+// [5] phase 1 mean thread busy, [6] quantize h, [7] phase 3 wall, [8] phase 3 mean busy, [9] join.
+#include <time.h>
+static int g_prof = 0;
+static double g_ps[10];
+static inline double pnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
+#define PMAXT 64
+static double g_pth[2][PMAXT];          /* per-thread busy sums: phase 1, phase 3 */
+void cpumoe_prof(int on) { g_prof = on; for (int i = 0; i < 10; i++) g_ps[i] = 0; for (int i = 0; i < PMAXT; i++) g_pth[0][i] = g_pth[1][i] = 0; }
+void cpumoe_prof_get(double *out) { for (int i = 0; i < 10; i++) out[i] = g_ps[i]; }
+void cpumoe_prof_threads(double *out, int n) { for (int i = 0; i < n; i++) { out[i] = g_pth[0][i]; out[n + i] = g_pth[1][i]; } }
+
 
 void moe_cpu_numa(int E, const uint8_t **G, const uint8_t **U, const uint8_t **D,
                   int qg, int qu, int qd, int nff, int ne, long g_rb, long u_rb, long d_rb,
@@ -233,6 +246,8 @@ void moe_cpu_numa(int E, const uint8_t **G, const uint8_t **U, const uint8_t **D
     vdot_t vg = pick(qg), vu = pick(qu), vd = pick(qd);
     int nth = g_nth > 0 ? g_nth : omp_get_max_threads();
     int NN = g_nodes, tpn = nth / NN;
+    const int prof = g_prof && nth <= PMAXT;
+    double pt[4][PMAXT], T0 = prof ? pnow() : 0;
     uint8_t *xq = malloc((size_t)(ne / 256) * Q8K_BYTES);
     quantize_row_q8_K(x, xq, ne);
     size_t hb = (size_t)(nff / 256) * Q8K_BYTES;
@@ -240,6 +255,7 @@ void moe_cpu_numa(int E, const uint8_t **G, const uint8_t **U, const uint8_t **D
     #pragma omp parallel num_threads(nth)
     {
         int tid = omp_get_thread_num(), node = tid / tpn, j = tid % tpn;
+        if (prof) pt[0][tid] = pnow();
         if (node >= NN) { node = NN - 1; j = tpn; }          /* leftover threads idle in phase 1/3 */
         int a = (int)((long)nff * node / NN), half = (int)((long)nff * (node + 1) / NN) - a;   /* node's rows */
         int r0 = a + (int)((long)j * half / tpn), r1 = a + (int)((long)(j + 1) * half / tpn);
@@ -253,9 +269,11 @@ void moe_cpu_numa(int E, const uint8_t **G, const uint8_t **U, const uint8_t **D
                 u = u < -lim ? -lim : (u > lim ? lim : u);
                 h[(size_t)e * nff + r] = g / (1.f + expf(-g)) * u;
             }
+        if (prof) pt[1][tid] = pnow();
         #pragma omp barrier
         for (int e = tid; e < E; e += nth) quantize_row_q8_K(h + (size_t)e * nff, hq + hb * e, nff);
         #pragma omp barrier
+        if (prof) pt[2][tid] = pnow();
         int a2 = (int)((long)ne * node / NN), half2 = (int)((long)ne * (node + 1) / NN) - a2;
         int s0 = a2 + (int)((long)j * half2 / tpn), s1 = a2 + (int)((long)(j + 1) * half2 / tpn);
         if (j >= tpn) s1 = s0;
@@ -267,8 +285,55 @@ void moe_cpu_numa(int E, const uint8_t **G, const uint8_t **U, const uint8_t **D
             }
             y[r] = acc;
         }
+        if (prof) pt[3][tid] = pnow();
     }
     free(xq); free(hq);
+    if (prof) {
+        double T1 = pnow(), mx[4] = {0, 0, 0, 0}, b1 = 0, b3 = 0;
+        for (int t = 0; t < nth; t++) {
+            for (int k = 0; k < 4; k++) if (pt[k][t] > mx[k]) mx[k] = pt[k][t];
+            b1 += pt[1][t] - pt[0][t]; b3 += pt[3][t] - pt[2][t];
+            g_pth[0][t] += pt[1][t] - pt[0][t]; g_pth[1][t] += pt[3][t] - pt[2][t];
+        }
+        g_ps[0] += 1; g_ps[1] += E; g_ps[2] += T1 - T0; g_ps[3] += mx[0] - T0; g_ps[4] += mx[1] - mx[0];
+        g_ps[5] += b1 / nth; g_ps[6] += mx[2] - mx[1]; g_ps[7] += mx[3] - mx[2]; g_ps[8] += b3 / nth; g_ps[9] += T1 - mx[3];
+    }
+}
+
+// One call per MoE layer with no per-call marshaling: the layer's three expert tensors are
+// bound once (cpumoe_bind_layer); a call names the routed experts to compute by a bit mask over
+// the 8 routed slots (sel[j], w[j] for each set bit j, in slot order).
+#define BIND_MAXL 128
+typedef struct { const uint8_t *g, *u, *d; int qg, qu, qd, nff, ne; long g_rb, u_rb, d_rb; } bound_t;
+static bound_t g_bound[BIND_MAXL];
+static float *g_hbuf = 0;
+static size_t g_hcap = 0;
+
+void cpumoe_bind_layer(int L, const uint8_t *g, const uint8_t *u, const uint8_t *d, int qg, int qu, int qd,
+                       int nff, int ne, long g_rb, long u_rb, long d_rb) {
+    if (L < 0 || L >= BIND_MAXL) return;
+    g_bound[L] = (bound_t){g, u, d, qg, qu, qd, nff, ne, g_rb, u_rb, d_rb};
+}
+
+int moe_cpu_layer(int L, unsigned mask, const int64_t *sel, const float *w8, const float *x, float lim, float *y) {
+    const bound_t *b = &g_bound[L];
+    // not on this stack: the team reads these while this thread works next to them
+    static struct { const uint8_t *G[32], *U[32], *D[32]; float w[32]; } __attribute__((aligned(64))) a;
+    const uint8_t **G = a.G, **U = a.U, **D = a.D;
+    float *w = a.w;
+    int E = 0;
+    for (int j = 0; j < 32; j++)
+        if (mask >> j & 1) {
+            size_t e = (size_t)sel[j];
+            G[E] = b->g + e * b->nff * b->g_rb; U[E] = b->u + e * b->nff * b->u_rb; D[E] = b->d + e * b->ne * b->d_rb;
+            w[E++] = w8[j];
+        }
+    if (!E) return 0;
+    if (g_hcap < (size_t)E * b->nff) {
+        free(g_hbuf); g_hcap = (size_t)32 * b->nff; g_hbuf = malloc(g_hcap * sizeof(float));
+    }
+    moe_cpu_numa(E, G, U, D, b->qg, b->qu, b->qd, b->nff, b->ne, b->g_rb, b->u_rb, b->d_rb, x, w, lim, g_hbuf, y);
+    return E;
 }
 
 // T-token NUMA-split variant (speculative verification): the union of the T tokens' experts,

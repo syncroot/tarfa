@@ -268,6 +268,15 @@ class Engine:
                         body(d, L)
                     H[d]["g"][L] = g
         self.hits = H
+        # CPU experts through one C call per layer (cpu_moe.moe_cpu_layer): the layer's tensors are
+        # bound once, a call passes only the miss mask and the pinned host buffers' addresses
+        self.cpu_layer = None
+        import cpu_moe
+        if cpu_moe.moe_cpu is cpu_moe.moe_cpu_numa and os.environ.get("GLM5_CPU_LAYER", "1") == "1":
+            for L in range(3, N_LAYER):
+                cpu_moe.bind_layer(L, *[self.m.idx[f"blk.{L}.{k}"] for k in KINDS])
+            self.cpu_layer = cpu_moe.moe_cpu_layer
+            self.cpu_args = (self.h_sel.data_ptr(), self.h_w.data_ptr(), self.h_x.data_ptr(), self.h_y.data_ptr())
         if os.environ.get("GLM5_CHECK", "0") == "1":
             self._check_hits()
         self.ev = torch.cuda.Event()
@@ -350,7 +359,12 @@ class Engine:
                 if es_s:
                     ev_s = self.streamer.launch(L, es_s, uni, self.x32[None], self.ev)
                     miss = [j for j in miss if sel[j] not in es_s]
-            if miss:
+            if miss and self.cpu_layer is not None:
+                t0 = time.perf_counter()
+                self.cpu_layer(L, sum(1 << j for j in miss), *self.cpu_args)
+                raw.t_cpu = getattr(raw, "t_cpu", 0.0) + time.perf_counter() - t0
+                self.ycpu.copy_(self.h_y, non_blocking=True)
+            elif miss:
                 ts = [self.m.idx[f"blk.{L}.{k}"] for k in KINDS]
                 q, _ = self.qmeta[L]
                 t0 = time.perf_counter()
@@ -546,7 +560,10 @@ def main():
         print("swap stages:", [(s["L"], s["stage"]) for s in eng.adapt.swaps])
     if eng.adapt is not None:
         print(f"adapt: {eng.adapt.done} swaps completed, {len(eng.adapt.swaps)} in flight, "
-              f"worker busy {eng.adapt.t_worker:.1f}s")
+              f"worker busy {eng.adapt.t_worker:.1f}s, token-boundary work {eng.adapt.t_tick:.2f}s "
+              f"(table writes {eng.adapt.t_tbl:.2f}s)")
+        if os.environ.get("GLM5_ADAPT_VERIFY") == "1":
+            eng.adapt.verify()
     if mtp is not None:
         print(f"MTP acceptance during decode: {mtp_stats[0]}/{mtp_stats[1]} = {mtp_stats[0]/max(1,mtp_stats[1]):.1%} "
               f"(order {mtp.order}, h {mtp.hsrc})")

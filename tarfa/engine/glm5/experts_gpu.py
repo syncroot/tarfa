@@ -36,6 +36,10 @@ class RawExperts:
         self.warm = self.warm_mode in ("1", "prefill")
         self.warm_futs = []
         self.route = {}                                            # L -> np counts[288]
+        # GLM5_PIN_PER_LAYER=n (with GLM5_ADAPT): n GPU experts per layer stay GPU-only; every other
+        # expert, GPU-resident or not, is kept in RAM, so the rest of the GPU set can change
+        # during decode without any disk or page-cache traffic (choose_pinned, adapt.py)
+        self.pinned = None                                         # L -> set of GPU-only experts
         # selective warming: admit an expert only after GLM5_WARM_MIN misses, at most
         # GLM5_WARM_BUDGET new warms per layer per token (traffic dies off as the set settles)
         self.warm_min = int(os.environ.get("GLM5_WARM_MIN", "1"))
@@ -161,8 +165,11 @@ class RawExperts:
         self.warm_futs = []
         if self.warm_mode == "prefill":
             self.warm = False
-            if os.environ.get("GLM5_PRIOR"):
-                self.fill_prior(np.load(os.environ["GLM5_PRIOR"]))
+            prior = np.load(os.environ["GLM5_PRIOR"]) if os.environ.get("GLM5_PRIOR") else None
+            if prior is not None:
+                self.fill_prior(prior)
+            if int(os.environ.get("GLM5_PIN_PER_LAYER", "0")) > 0:
+                self.choose_pinned(int(os.environ["GLM5_PIN_PER_LAYER"]), prior)
             if os.environ.get("GLM5_POPULATE", "1") == "1":
                 self.populate()
         return sum(len(c) for c in self.cache.values())
@@ -194,6 +201,23 @@ class RawExperts:
             f.result()
         print(f"  prior: +{len(futs)} experts into free GPU slots in {time.time()-t0:.0f}s", flush=True)
 
+    def choose_pinned(self, n, prior):
+        """The n GPU-resident experts per layer least likely to leave the GPU set: ranked by their
+        share of the prompt's routing plus their share of the calibration histogram."""
+        self.pinned = {}
+        for L, c in self.cache.items():
+            sc = np.zeros(288)
+            if L in self.route and self.route[L].sum():
+                sc += self.route[L] / self.route[L].sum()
+            if prior is not None and prior[L].sum():
+                sc += prior[L] / prior[L].sum()
+            self.pinned[L] = set(sorted(c, key=lambda e: -sc[e])[:n])
+        print(f"  pinned {sum(len(s) for s in self.pinned.values())} experts GPU-only; "
+              f"the other GPU-resident experts stay in RAM too", flush=True)
+
+    def _gpu_only(self, L):
+        return self.pinned[L] if self.pinned is not None else set(self.cache.get(L, {}))
+
     def numa_place(self):
         """Split every CPU-side expert matrix by rows across the NUMA nodes (part k's pages ->
         node k) and switch the CPU kernel to the node-split variant (cpu_moe.numa_setup)."""
@@ -201,7 +225,7 @@ class RawExperts:
         nn = cpu_moe.numa_setup()
         t0 = time.time()
         def one(L):
-            gpu, bad = set(self.cache.get(L, {})), 0
+            gpu, bad = self._gpu_only(L), 0
             for k in KINDS:
                 t = self.idx[f"blk.{L}.{k}"]
                 for e in range(t.data.shape[0]):
@@ -232,7 +256,7 @@ class RawExperts:
                 files[mm.ctypes.data] = (os.open(mm.filename, os.O_RDONLY), mm.nbytes)
         t0 = time.time(); dropped = kept = 0
         for L in sorted(self.cache):
-            gpu = set(self.cache[L])
+            gpu = self._gpu_only(L)
             for k in KINDS:
                 t = self.idx[f"blk.{L}.{k}"]
                 for e in range(t.data.shape[0]):
@@ -253,7 +277,7 @@ class RawExperts:
             nodes, nn = [None], 1
         work = [[] for _ in nodes]                # per node: page-aligned (fd, file offset, address, len)
         for L in sorted(self.cache):
-            gpu = set(self.cache[L])
+            gpu = self._gpu_only(L)
             for k in KINDS:
                 t = self.idx[f"blk.{L}.{k}"]
                 for e in range(t.data.shape[0]):
@@ -296,8 +320,8 @@ class RawExperts:
             os.close(fd)
         if numa:
             self.numa_place()                     # switches the kernel to the split variant; moves stragglers
-        print(f"  populate: dropped {dropped/1e9:.1f} GB GPU-resident experts from page cache, "
-              f"mapped {kept/1e9:.1f} GB CPU experts in {time.time()-t0:.0f}s", flush=True)
+        print(f"  populate: dropped {dropped/1e9:.1f} GB GPU-only experts from page cache, "
+              f"mapped {kept/1e9:.1f} GB experts in {time.time()-t0:.0f}s", flush=True)
 
     def _fetch_sync(self, L, misses, ts):
         """GPU-miss mode: fetch now (placed + cached), return {e: (trip, dev)}."""

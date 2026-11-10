@@ -155,3 +155,24 @@ def moe_cpu_numa_t(gs, us, ds, qg, qu, qd, x, w, lim=10.0, out=None):
 
 if _USE_GGML:
     _lib.moe_cpu_numa_t.argtypes = [ctypes.c_int, ctypes.c_int] + _lib.moe_cpu.argtypes[1:]
+
+
+# ---- one call per layer, no per-call marshaling (cpu_moe_ggml.c: moe_cpu_layer) ----
+if _USE_GGML:
+    _lib.cpumoe_bind_layer.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p] + [ctypes.c_int] * 5 + [ctypes.c_long] * 3
+    _lib.moe_cpu_layer.argtypes = [ctypes.c_int, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                                   ctypes.c_float, ctypes.c_void_p]
+
+
+def bind_layer(L, tg, tu, td):
+    """tg/tu/td: the layer's gate/up/down expert tensors (GGUF reader tensors, data [288, rows, row_bytes])."""
+    g, u, d = tg.data, tu.data, td.data
+    _lib.cpumoe_bind_layer(L, g.ctypes.data, u.ctypes.data, d.ctypes.data,
+                           int(tg.tensor_type), int(tu.tensor_type), int(td.tensor_type),
+                           g.shape[1], d.shape[1], g.shape[2], u.shape[2], d.shape[2])
+
+
+def moe_cpu_layer(L, mask, sel_addr, w_addr, x_addr, y_addr, lim=10.0):
+    """Routed slots j with bit j of mask set: experts sel[j] (int64) with weights w[j], x fp32 [Ne]
+    -> y fp32 [Ne]. Arguments are addresses of buffers that outlive the call. Needs numa_setup()."""
+    return _lib.moe_cpu_layer(L, mask, sel_addr, w_addr, x_addr, lim, y_addr)

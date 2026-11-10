@@ -25,12 +25,26 @@ flags, so the fair ratio is about 1.4x plain and 1.5x with MTP (README.md, bench
 | torch.compile'd trunk bodies + router topk | 11.1 @128, 10.3 @256 (story prompt) | GLM5_COMPILE |
 | own AVX-512BW Q4_K/Q5_K dots + in-row prefetch (CPU 0.28 -> 0.22 ms/expert) | 12.5 @128 (story; was 10.95) | cpu_moe_ggml.c |
 | MTP speculative decode (NextN draft, 2-token verify) | **13.0 @128** (story) | glm5_spec.py, run_spec.sh |
+| plain decode: CPU experts called once per layer on bound tensors (2026-11-10) | 13.2-13.6 @128 (story; 12.5-12.9 before, same day) | cpu_moe.moe_cpu_layer |
 
 Per token at 11.1 tok/s (GLM5_TL=1): CPU experts ~57 ms (~185 misses x 0.29 ms), trunk graphs
 ~21 ms, host glue ~9 ms; GPU hits (~16 ms) overlap the CPU work.
 
 Speculative step at 13.0 tok/s (1.80 tokens/step, 82% drafts accepted): 138 ms = CPU experts 88
 (330 union experts), trunk graphs 27, host glue 10, MTP draft 10 (CPU experts 3.5).
+
+## Per-layer CPU call (2026-11-10)
+The plain decode step built three Python lists of memmap slices per MoE layer and went through the
+general ctypes wrapper. `cpumoe_bind_layer` now registers each layer's three expert tensors once
+and `moe_cpu_layer` takes the layer, a miss mask and the addresses of the pinned host buffers; the
+C side calls the same `moe_cpu_numa`. Output is bit-identical (replay_cpu.py, 40 random calls).
+Replay of a recorded decode outside the engine: 41.2-41.4 -> 38.7-39.1 ms/token, Python cost per call
+58 -> 5 us. In-engine, warm, story prompt @128, interleaved runs: published checkout (9887cdf)
+12.71 / 12.72 / 12.75 tok/s against 13.40 / 13.50 / 13.60; with the old call selected in the new
+code (GLM5_CPU_LAYER=0) 12.50-12.87 against 13.17-13.60 over four rounds. About +6%. llama.cpp
+was not re-measured that day. The speculative path (moe_cpu_numa_t) still uses the old wrapper.
+A per-call dynamic thread schedule in C was tried in the same replay and was slower (40.1-40.6
+ms/token) than the static NUMA split; it was removed.
 
 ## MTP speculative decoding (glm5_spec.py, mtp.py)
 - Draft: block 45 NextN, x = eh_proj([enorm(emb(t+1)); hnorm(h_t)]) with h_t the trunk's
@@ -68,6 +82,18 @@ Speculative step at 13.0 tok/s (1.80 tokens/step, 82% drafts accepted): 138 ms =
 - Adaptive GPU expert set (adapt.py, GLM5_ADAPT): hit rate 38% -> 49-53% as simulated, but no
   speedup - evicted experts must come back from NVMe (RAM < model) and the page-cache churn /
   on-demand faults slow the CPU kernel by as much as the extra hits save. Off by default.
+- Adaptive set without disk traffic (2026-11-10, GLM5_PIN_PER_LAYER=21 with GLM5_ADAPT): 21
+  GPU experts per layer are GPU-only, every other expert keeps a NUMA-placed RAM copy (172.0 GB
+  mapped), so a swap is one 15 MB DMA and two table writes. Warm, story @128, static 13.2-13.6
+  the same day: 4 swaps/token 12.4-12.7 tok/s (hit rate 47-49.5%, CPU kernel 4.8-5.0 s instead of 5.3),
+  8 swaps/token 11.6-11.7 (51%). The swaps cost more than the hits save: with GLM5_TL=1 the host
+  time around the graph launches grows from 8.2 to 13.6 ms/token while the CPU phase shrinks by
+  2.5. Page-locked staging buffers instead of a cudaHostRegister per swap (GLM5_ADAPT_SRC=stage)
+  were slower still (12.0-12.1): the extra memcpy runs against the CPU kernel. After a run,
+  GLM5_ADAPT_VERIFY=1 compares every GPU slot with the GGUF bytes (1760 experts, 0 differ).
+- More expert slots (2026-11-10): 21+25 per layer instead of 19+23 fills the cards to a peak of
+  23,462 of 24,576 MiB and 15,640 of 16,380 MiB. Hit rate 42-43% -> 43.5-46%, 13.36-13.68 tok/s against 13.17-13.60 over
+  four interleaved rounds: no difference outside run-to-run noise. Default unchanged.
 
 ## Fidelity
 Step-1 top-5 token set equals llama.cpp's and argmax matches; hit-graph self-test (GLM5_CHECK=1)
@@ -91,5 +117,5 @@ paths). Gate against the fp32 reference, not token-for-token llama.cpp.
   12.9-13.7 from the second start. Some first starts still take page faults during decode.
 
 ## Open levers
-MTP draft in fewer syncs; more RAM (whole model cached would make adaptive swapping pay); more
-fusion of the trunk glue.
+MTP draft in fewer syncs; the per-layer CPU call for the speculative path; more fusion of the
+trunk glue. More RAM alone would not make adaptive swapping pay (see the 2026-11-10 test above).
